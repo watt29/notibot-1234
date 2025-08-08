@@ -389,6 +389,187 @@ def handle_message(event):
                     )]
                 )
             )
+    elif text == "/admin" and event.source.user_id in admin_ids:
+        admin_help_text = """🔧 คำสั่ง Admin:
+
+📝 /add ชื่อกิจกรรม | รายละเอียด | YYYY-MM-DD
+   เพิ่มกิจกรรมใหม่
+
+📋 /list
+   ดูรายการกิจกรรมทั้งหมด
+
+✏️ /edit [ID] | ชื่อใหม่ | รายละเอียดใหม่ | วันที่ใหม่
+   แก้ไขกิจกรรม
+
+🗑️ /delete [ID]
+   ลบกิจกรรม
+
+ตัวอย่าง:
+/edit 5 | การประชุม | หารือโครงการ | 2025-01-25"""
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=admin_help_text)]
+            )
+        )
+    elif text == "/list" and event.source.user_id in admin_ids:
+        try:
+            response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
+            events = response.data
+            
+            if events:
+                event_list = "📋 รายการกิจกรรมทั้งหมด:\n\n"
+                for event in events:
+                    formatted_date = format_thai_date(event.get('event_date', ''))
+                    event_list += f"🆔 ID: {event['id']}\n"
+                    event_list += f"📅 {event.get('event_title', 'ไม่มีชื่อ')}\n"
+                    event_list += f"📝 {event.get('event_description', 'ไม่มีรายละเอียด')}\n"
+                    event_list += f"🗓️ {formatted_date}\n"
+                    event_list += "─" * 30 + "\n\n"
+                
+                # Split long messages if needed
+                if len(event_list) > 2000:
+                    event_list = event_list[:1900] + "...\n\nใช้ /admin เพื่อดูคำสั่งจัดการ"
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=event_list)]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ")]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error listing events: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ")]
+                )
+            )
+    elif text.startswith("/edit ") and event.source.user_id in admin_ids:
+        # Expected format: /edit [ID] | [title] | [description] | [date]
+        parts = text[len("/edit "):].split(' | ', 3)
+        if len(parts) != 4:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="รูปแบบคำสั่งไม่ถูกต้องครับ\nใช้: /edit [ID] | ชื่อใหม่ | รายละเอียดใหม่ | YYYY-MM-DD")]
+                )
+            )
+            return
+        
+        try:
+            event_id = int(parts[0].strip())
+            new_title = parts[1].strip()
+            new_description = parts[2].strip()
+            new_date_str = parts[3].strip()
+            
+            # Validate date format
+            try:
+                new_date = datetime.strptime(new_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องครับ กรุณาใช้ YYYY-MM-DD")]
+                    )
+                )
+                return
+            
+            # Update event in database
+            response = supabase_client.table('events').update({
+                'event_title': new_title,
+                'event_description': new_description,
+                'event_date': str(new_date)
+            }).eq('id', event_id).execute()
+            
+            if response.data and len(response.data) > 0:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"✅ แก้ไขกิจกรรม ID: {event_id} เรียบร้อยแล้วครับ")]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id} หรือไม่สามารถแก้ไขได้")]
+                    )
+                )
+        except ValueError:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ")]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error editing event: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการแก้ไขกิจกรรมครับ")]
+                )
+            )
+    elif text.startswith("/delete ") and event.source.user_id in admin_ids:
+        # Expected format: /delete [ID]
+        try:
+            event_id_str = text[len("/delete "):].strip()
+            event_id = int(event_id_str)
+            
+            # First get event details for confirmation
+            get_response = supabase_client.table('events').select('*').eq('id', event_id).execute()
+            
+            if get_response.data and len(get_response.data) > 0:
+                event_data = get_response.data[0]
+                
+                # Delete event from database
+                delete_response = supabase_client.table('events').delete().eq('id', event_id).execute()
+                
+                if delete_response.data:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=f"🗑️ ลบกิจกรรมเรียบร้อยแล้วครับ\n\n📝 {event_data.get('event_title', '')}\n🆔 ID: {event_id}")]
+                        )
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=f"❌ ไม่สามารถลบกิจกรรม ID: {event_id} ได้")]
+                        )
+                    )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}")]
+                    )
+                )
+        except ValueError:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ")]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error deleting event: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ")]
+                )
+            )
     else:
         line_bot_api.reply_message(
             ReplyMessageRequest(
