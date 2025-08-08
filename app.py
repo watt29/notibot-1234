@@ -259,23 +259,4 @@ def handle_message(event):
         else:  # Search by keyword
             try:
                 # Using text_search for potentially better keyword matching
-                response = supabase.table('events').select('*').text_search('event_title', f"'{text}'").execute()
-                events = response.data
-                if not events:
-                    reply_message = TextMessage(text=f"ไม่พบกิจกรรมที่เกี่ยวกับ '{text}'", quick_reply=create_quick_reply_buttons(is_admin))
-            except Exception as e:
-                app.logger.error(f"Error during text search: {e}")
-                reply_message = TextMessage(text="ขออภัย เกิดข้อผิดพลาดในการค้นหา", quick_reply=create_quick_reply_buttons(is_admin))
-
-        if events:
-            flex_contents = [create_event_flex_message(e, is_admin) for e in events]
-            messages = [FlexMessage(alt_text="รายการกิจกรรม", contents={"type": "carousel", "contents": flex_contents})]
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=messages))
-        elif reply_message:
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[reply_message]))
-        # No default reply to avoid spamming
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+                response = supabase.table('events').select('*').text_search('event_title', f
