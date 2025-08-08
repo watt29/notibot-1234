@@ -7,7 +7,7 @@ from linebot.v3.messaging import (
     MessageAction
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os
 from supabase import create_client, Client
 import re
@@ -188,9 +188,15 @@ def get_single_flex_message(event_data, is_admin=False):
     flex_message_content = create_event_flex_message(event_data, is_admin)
     return FlexMessage(alt_text="กิจกรรมล่าสุด", contents=FlexContainer.from_dict(flex_message_content))
 
-def create_events_carousel_message(events_list, is_admin=False):
+def create_events_carousel_message(events_list, is_admin=False, page=1, total_events=None):
+    # Limit to 10 events per carousel (LINE limit is 12)
+    max_per_page = 10
+    start_idx = (page - 1) * max_per_page
+    end_idx = start_idx + max_per_page
+    page_events = events_list[start_idx:end_idx]
+    
     bubbles = []
-    for event_data in events_list:
+    for event_data in page_events:
         bubble_content = create_event_flex_message(event_data, is_admin)
         bubbles.append(bubble_content)
     
@@ -199,7 +205,23 @@ def create_events_carousel_message(events_list, is_admin=False):
         "contents": bubbles
     }
     
-    return FlexMessage(alt_text="กิจกรรมทั้งหมด", contents=FlexContainer.from_dict(carousel_content))
+    return FlexMessage(alt_text=f"กิจกรรมหน้า {page}", contents=FlexContainer.from_dict(carousel_content))
+
+def create_pagination_quick_reply(page, total_pages, command_prefix="ล่าสุด"):
+    """Create pagination quick reply buttons"""
+    items = []
+    
+    if page > 1:
+        items.append(QuickReplyItem(action=MessageAction(label="◀️ ก่อนหน้า", text=f"{command_prefix} {page-1}")))
+    
+    items.append(QuickReplyItem(action=MessageAction(label=f"📄 {page}/{total_pages}", text=f"{command_prefix} 1")))
+    
+    if page < total_pages:
+        items.append(QuickReplyItem(action=MessageAction(label="▶️ ถัดไป", text=f"{command_prefix} {page+1}")))
+    
+    items.append(QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี")))
+    
+    return QuickReply(items=items)
 
 def create_main_quick_reply():
     """Create main menu quick reply buttons"""
@@ -207,6 +229,8 @@ def create_main_quick_reply():
         QuickReplyItem(action=MessageAction(label="📅 ดูกิจกรรมล่าสุด", text="ล่าสุด")),
         QuickReplyItem(action=MessageAction(label="📋 กิจกรรมวันนี้", text="/today")),
         QuickReplyItem(action=MessageAction(label="⏭️ กิจกรรมถัดไป", text="/next")),
+        QuickReplyItem(action=MessageAction(label="🗓️ เดือนนี้", text="/month")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหา", text="/search")),
         QuickReplyItem(action=MessageAction(label="🔔 สมัครแจ้งเตือน", text="/subscribe"))
     ])
 
@@ -267,21 +291,39 @@ def handle_message(event):
         line_bot_api.reply_message(
             ReplyMessageRequest(reply_token=event.reply_token, messages=[message])
         )
-    elif text == "ล่าสุด":
+    elif text.startswith("ล่าสุด"):
         try:
+            # Parse page number if provided
+            parts = text.split()
+            page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+            
             response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
             events = response.data
 
             if events:
-                # Check if user is admin
                 is_admin = event.source.user_id in admin_ids
-                flex_message = create_events_carousel_message(events, is_admin)
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[flex_message, TextMessage(text="เลือกดูกิจกรรมอื่นๆ ได้เลยครับ", quick_reply=create_main_quick_reply())]
+                total_events = len(events)
+                max_per_page = 10
+                total_pages = (total_events + max_per_page - 1) // max_per_page  # Ceiling division
+                
+                if total_pages > 1:
+                    flex_message = create_events_carousel_message(events, is_admin, page)
+                    pagination_reply = create_pagination_quick_reply(page, total_pages, "ล่าสุด")
+                    status_text = f"📄 หน้า {page}/{total_pages} (ทั้งหมด {total_events} กิจกรรม)"
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
+                        )
                     )
-                )
+                else:
+                    flex_message = create_events_carousel_message(events, is_admin)
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[flex_message, TextMessage(text="เลือกดูกิจกรรมอื่นๆ ได้เลยครับ", quick_reply=create_main_quick_reply())]
+                        )
+                    )
             else:
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -531,6 +573,148 @@ def handle_message(event):
                     reply_token=event.reply_token,
                     messages=[TextMessage(
                         text="เกิดข้อผิดพลาดในการดึงข้อมูลกิจกรรมถัดไปค่ะ กรุณาลองใหม่อีกครั้ง",
+                        quick_reply=create_main_quick_reply()
+                    )]
+                )
+            )
+    elif text == "/month":
+        try:
+            today = date.today()
+            start_of_month = today.replace(day=1)
+            # Get last day of month
+            if today.month == 12:
+                end_of_month = date(today.year + 1, 1, 1) - timedelta(days=1)
+            else:
+                end_of_month = date(today.year, today.month + 1, 1) - timedelta(days=1)
+            
+            response = supabase_client.table('events').select('*').gte('event_date', str(start_of_month)).lte('event_date', str(end_of_month)).order('event_date', desc=False).execute()
+            events = response.data
+
+            if events:
+                is_admin = event.source.user_id in admin_ids
+                total_events = len(events)
+                
+                if len(events) == 1:
+                    flex_message = get_single_flex_message(events[0], is_admin)
+                elif total_events > 10:
+                    flex_message = create_events_carousel_message(events, is_admin, 1)
+                    total_pages = (total_events + 9) // 10
+                    pagination_reply = create_pagination_quick_reply(1, total_pages, "/month")
+                    status_text = f"🗓️ เดือน {today.month}/{today.year} - หน้า 1/{total_pages} (ทั้งหมด {total_events} กิจกรรม)"
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
+                        )
+                    )
+                    return
+                else:
+                    flex_message = create_events_carousel_message(events, is_admin)
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[flex_message, TextMessage(text=f"🗓️ กิจกรรมเดือน {today.month}/{today.year} ทั้งหมด {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(
+                            text=f"🗓️ ไม่มีกิจกรรมในเดือน {today.month}/{today.year}",
+                            quick_reply=create_main_quick_reply()
+                        )]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error fetching monthly events: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text="เกิดข้อผิดพลาดในการดึงข้อมูลกิจกรรมประจำเดือนค่ะ กรุณาลองใหม่อีกครั้ง",
+                        quick_reply=create_main_quick_reply()
+                    )]
+                )
+            )
+    elif text == "/search":
+        search_help = """🔍 ค้นหากิจกรรม
+
+📝 ค้นหาจากชื่อ/รายละเอียด:
+/search คำค้น
+
+📅 ค้นหาตามวันที่:
+/search 2025-08-15
+
+ตัวอย่าง:
+/search บัตร
+/search ประชุม
+/search 2025-08-20"""
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=search_help, quick_reply=create_main_quick_reply())]
+            )
+        )
+    elif text.startswith("/search "):
+        search_term = text[len("/search "):].strip()
+        
+        try:
+            # Check if search term is a date
+            if re.match(r'\d{4}-\d{2}-\d{2}', search_term):
+                response = supabase_client.table('events').select('*').eq('event_date', search_term).execute()
+            else:
+                # Search in title and description
+                response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{search_term}%,event_description.ilike.%{search_term}%").order('event_date', desc=False).execute()
+            
+            events = response.data
+            
+            if events:
+                is_admin = event.source.user_id in admin_ids
+                total_events = len(events)
+                
+                if len(events) == 1:
+                    flex_message = get_single_flex_message(events[0], is_admin)
+                elif total_events > 10:
+                    flex_message = create_events_carousel_message(events, is_admin, 1)
+                    total_pages = (total_events + 9) // 10
+                    pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
+                    status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
+                        )
+                    )
+                    return
+                else:
+                    flex_message = create_events_carousel_message(events, is_admin)
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(
+                            text=f"🔍 ไม่พบกิจกรรมที่ตรงกับ '{search_term}'",
+                            quick_reply=create_main_quick_reply()
+                        )]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error searching events: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text="เกิดข้อผิดพลาดในการค้นหาค่ะ กรุณาลองใหม่อีกครั้ง",
                         quick_reply=create_main_quick_reply()
                     )]
                 )
