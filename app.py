@@ -219,6 +219,14 @@ def create_admin_quick_reply():
         QuickReplyItem(action=MessageAction(label="ℹ️ วิธีใช้", text="/admin"))
     ])
 
+def create_delete_confirm_quick_reply(event_id):
+    """Create delete confirmation quick reply buttons"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="✅ ยืนยันลบ", text=f"ยืนยันลบ {event_id}")),
+        QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+    ])
+
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
@@ -830,13 +838,12 @@ def handle_message(event):
 
 ⚠️ การลบไม่สามารถย้อนกลับได้!
 
-✅ ยืนยันลบ: /delete {event_id}
-❌ ยกเลิก: กดปุ่ม "เมนูหลัก" """
+กดปุ่ม "✅ ยืนยันลบ" เพื่อลบ หรือ "❌ ยกเลิก" """
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text=confirm_text, quick_reply=create_admin_quick_reply())]
+                        messages=[TextMessage(text=confirm_text, quick_reply=create_delete_confirm_quick_reply(event_id))]
                     )
                 )
             else:
@@ -859,6 +866,57 @@ def handle_message(event):
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+    elif text.startswith("ยืนยันลบ ") and event.source.user_id in admin_ids:
+        # Handle "ยืนยันลบ ID" from quick reply button - actually delete the event
+        try:
+            event_id = int(text[len("ยืนยันลบ "):].strip())
+            
+            # Get event details before deleting
+            get_response = supabase_client.table('events').select('*').eq('id', event_id).execute()
+            
+            if get_response.data and len(get_response.data) > 0:
+                event_data = get_response.data[0]
+                
+                # Delete event from database
+                delete_response = supabase_client.table('events').delete().eq('id', event_id).execute()
+                
+                if delete_response.data:
+                    success_text = f"🗑️ ลบกิจกรรมเรียบร้อยแล้วครับ!\n\n📝 {event_data.get('event_title', '')}\n🆔 ID: {event_id}\n\n✅ การลบสำเร็จ"
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=f"❌ ไม่สามารถลบกิจกรรม ID: {event_id} ได้", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+        except ValueError:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error confirming delete: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
                 )
             )
     else:
