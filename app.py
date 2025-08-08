@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 # Supabase setup
 supabase_url = os.getenv('SUPABASE_URL')
-supabase_key = os.getenv('SUPABASE_KEY')
+supabase_key = os.getenv('SUPABASE_SERVICE_KEY')  # Use service role key for full permissions
 supabase_client: Client = create_client(supabase_url, supabase_key)
 
 # Get LINE Channel Access Token and Channel Secret from environment variables
