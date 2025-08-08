@@ -32,16 +32,11 @@ def get_env(var_name):
         sys.exit(1)
     return value
 
-channel_secret = get_env('LINE_CHANNEL_SECRET')
-channel_access_token = get_env('LINE_CHANNEL_ACCESS_TOKEN')
+handler = WebhookHandler(get_env('LINE_CHANNEL_SECRET'))
+configuration = Configuration(access_token=get_env('LINE_CHANNEL_ACCESS_TOKEN'))
+supabase: Client = create_client(get_env('SUPABASE_URL'), get_env('SUPABASE_KEY'))
 admin_user_id = get_env('ADMIN_USER_ID')
-supabase_url = get_env('SUPABASE_URL')
-supabase_key = get_env('SUPABASE_KEY')
-
-# --- API Clients Initialization ---
-handler = WebhookHandler(channel_secret)
-configuration = Configuration(access_token=channel_access_token)
-supabase: Client = create_client(supabase_url, supabase_key)
+admin_user_id = get_env('ADMIN_USER_ID')
 
 # --- UI Component Creation ---
 
