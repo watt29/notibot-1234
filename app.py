@@ -154,6 +154,11 @@ def create_main_quick_reply():
         QuickReplyItem(action=MessageAction(label="🔔 สมัครแจ้งเตือน", text="/subscribe"))
     ])
 
+@app.route("/")
+def health_check():
+    """Health check endpoint for monitoring services"""
+    return {"status": "ok", "service": "LINE Bot Event Notification System"}, 200
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
