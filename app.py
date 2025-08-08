@@ -196,17 +196,18 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
     is_admin = user_id == admin_user_id
-    
+    reply_token = event.reply_token
+
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
-        
-        # --- Admin Commands ---
+
+        # --- Admin Command Handling ---
         if is_admin:
             if text.lower().startswith('/add '):
                 parts = text[5:].split(';')
                 if len(parts) != 3:
                     reply_text = "รูปแบบคำสั่งผิดพลาด\nตัวอย่าง: /add หัวข้อ;รายละเอียด;YYYY-MM-DD"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=reply_text)]))
                     return
 
                 title, desc, event_date_str = [p.strip() for p in parts]
@@ -218,15 +219,14 @@ def handle_message(event):
                         'event_date': event_date.isoformat(),
                         'created_by': user_id
                     }
-                    insert_res = supabase.table('events').insert(new_event).execute()
+                    supabase.table('events').insert(new_event).execute()
                     
-                    # Broadcast to subscribers
                     subscribers_res = supabase.table('subscribers').select('user_id').execute()
                     subscriber_ids = [sub['user_id'] for sub in subscribers_res.data]
                     if subscriber_ids:
                         broadcast_message = f"📢 มีกิจกรรมใหม่: {title}\nวันที่: {event_date.strftime('%d %b %Y')}\nรายละเอียด: {desc}"
                         line_bot_api.push_message(PushMessageRequest(to=subscriber_ids, messages=[TextMessage(text=broadcast_message)]))
-
+                    
                     reply_text = f"เพิ่มกิจกรรม '{title}' เรียบร้อยแล้ว และแจ้งเตือนผู้ติดตาม {len(subscriber_ids)} คน"
                 except ValueError:
                     reply_text = "รูปแบบวันที่ไม่ถูกต้อง กรุณใช้ YYYY-MM-DD"
@@ -234,17 +234,18 @@ def handle_message(event):
                     reply_text = f"เกิดข้อผิดพลาด: {e}"
                     app.logger.error(reply_text)
                 
-                line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+                line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=reply_text)]))
                 return
 
-            if text.lower() == '/stats subscribers':
+            elif text.lower() == '/stats subscribers':
                 count = supabase.table('subscribers').select('user_id', count='exact').execute().count
-                line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=f"จำนวนผู้ติดตามทั้งหมด: {count} คน")]))
+                line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=f"จำนวนผู้ติดตามทั้งหมด: {count} คน")]))
                 return
 
-        # --- User Commands ---
-        reply_message = None
+        # --- User Command Handling ---
         events = []
+        reply_message = None
+        
         if text == 'ล่าสุด':
             events = get_latest_events()
             if not events:
@@ -255,8 +256,9 @@ def handle_message(event):
                 reply_message = TextMessage(text="วันนี้ไม่มีกิจกรรมครับ", quick_reply=create_quick_reply_buttons(is_admin))
         elif text.lower() == '/help':
             reply_message = TextMessage(text="คุณสามารถใช้คำสั่ง 'ล่าสุด' หรือ 'วันนี้' เพื่อดูกิจกรรมได้ครับ", quick_reply=create_quick_reply_buttons(is_admin))
-        else: # Search by keyword
+        else:  # Search by keyword
             try:
+                # Using text_search for potentially better keyword matching
                 response = supabase.table('events').select('*').text_search('event_title', f"'{text}'").execute()
                 events = response.data
                 if not events:
@@ -266,11 +268,13 @@ def handle_message(event):
                 reply_message = TextMessage(text="ขออภัย เกิดข้อผิดพลาดในการค้นหา", quick_reply=create_quick_reply_buttons(is_admin))
 
         if events:
-            messages = [FlexMessage(alt_text="รายการกิจกรรม", contents={"type": "carousel", "contents": [create_event_flex_message(e, is_admin) for e in events]})]
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=messages))
+            flex_contents = [create_event_flex_message(e, is_admin) for e in events]
+            messages = [FlexMessage(alt_text="รายการกิจกรรม", contents={"type": "carousel", "contents": flex_contents})]
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=messages))
         elif reply_message:
-            line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[reply_message]))
-        # If no command matches and it's not a search, we don't reply to avoid spam.
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[reply_message]))
+        # No default reply to avoid spamming
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
