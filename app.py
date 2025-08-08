@@ -271,20 +271,74 @@ def handle_message(event):
             )
             return
 
-        # Expected format: /add <title> | <description> | <date>
-        parts = text[len("/add "):].split(' | ', 2)
-        if len(parts) != 3:
+        # รองรับหลายรูปแบบ: /add title | desc | date หรือ /add title desc date
+        content = text[len("/add "):].strip()
+        
+        # ลองแยกด้วย | ก่อน
+        if ' | ' in content:
+            parts = content.split(' | ', 2)
+        else:
+            # แยกด้วยช่องว่าง โดยเอาส่วนท้ายเป็นวันที่
+            words = content.split()
+            if len(words) >= 3:
+                # หาวันที่ในรูปแบบ YYYY-MM-DD
+                date_pattern = r'\d{4}-\d{2}-\d{2}'
+                date_matches = []
+                for i, word in enumerate(words):
+                    if re.match(date_pattern, word):
+                        date_matches.append((i, word))
+                
+                if date_matches:
+                    # ใช้วันที่แรกที่พบ
+                    date_index, date_str = date_matches[0]
+                    title_desc_words = words[:date_index] + words[date_index+1:]
+                    
+                    # แบ่งครึ่งสำหรับ title และ description
+                    mid = len(title_desc_words) // 2
+                    if mid == 0:
+                        parts = [' '.join(title_desc_words), 'ไม่มีรายละเอียด', date_str]
+                    else:
+                        parts = [
+                            ' '.join(title_desc_words[:mid]),
+                            ' '.join(title_desc_words[mid:]),
+                            date_str
+                        ]
+                else:
+                    # ไม่พบวันที่ ใช้คำสุดท้ายเป็นวันที่
+                    if len(words) >= 3:
+                        parts = [
+                            ' '.join(words[:-2]),
+                            words[-2],
+                            words[-1]
+                        ]
+                    else:
+                        parts = words
+            else:
+                parts = words
+
+        if len(parts) < 3:
+            help_text = """📝 วิธีเพิ่มกิจกรรม:
+
+แบบง่าย:
+/add บัตรตำรวจ ผกก.อยู่ที่กระเป๋าปืน 2025-08-08
+
+แบบละเอียด:  
+/add บัตรตำรวจ | ผกก.อยู่ที่กระเป๋าปืน | 2025-08-08
+
+หรือกด "เพิ่มกิจกรรม" แล้วพิมพ์:
+บัตรตำรวจ | ผกก.อยู่ที่กระเป๋าปืน | 2025-08-08"""
+            
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="รูปแบบคำสั่งไม่ถูกต้องค่ะ ตัวอย่าง: /add ชื่อกิจกรรม | รายละเอียด | YYYY-MM-DD")]
+                    messages=[TextMessage(text=help_text, quick_reply=create_admin_quick_reply())]
                 )
             )
             return
 
         event_title = parts[0].strip()
-        event_description = parts[1].strip()
-        event_date_str = parts[2].strip()
+        event_description = parts[1].strip() if len(parts) > 1 else 'ไม่มีรายละเอียด'
+        event_date_str = parts[2].strip() if len(parts) > 2 else parts[-1].strip()
 
         try:
             event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
@@ -292,7 +346,7 @@ def handle_message(event):
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องค่ะ กรุณาใช้ YYYY-MM-DD")]
+                    messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องค่ะ กรุณาใช้ YYYY-MM-DD", quick_reply=create_admin_quick_reply())]
                 )
             )
             return
@@ -301,17 +355,17 @@ def handle_message(event):
             response = supabase_client.table('events').insert({
                 'event_title': event_title,
                 'event_description': event_description,
-                'event_date': str(event_date), # Convert date object to string for Supabase
+                'event_date': str(event_date),
                 'created_by': user_id
             }).execute()
             
-            # Supabase insert returns a list of inserted rows
             if response.data and len(response.data) > 0:
                 event_id = response.data[0]['id']
+                success_text = f"✅ เพิ่มกิจกรรมสำเร็จ!\n\n📝 {event_title}\n📋 {event_description}\n📅 {format_thai_date(str(event_date))}\n🆔 ID: {event_id}"
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text=f"✅ ระบบได้บันทึกกิจกรรมเรียบร้อยแล้วค่ะ\nรหัสกิจกรรม: {event_id}\nขอบคุณค่ะ")]
+                        messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                     )
                 )
             else:
@@ -322,7 +376,7 @@ def handle_message(event):
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมค่ะ กรุณาลองใหม่อีกครั้ง")]
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_admin_quick_reply())]
                 )
             )
     elif text == "/today":
@@ -421,16 +475,18 @@ def handle_message(event):
             )
         )
     elif text == "เพิ่มกิจกรรม" and event.source.user_id in admin_ids:
-        guide_text = """📝 เพิ่มกิจกรรมใหม่
+        guide_text = """📝 เพิ่มกิจกรรมใหม่ (ใช้ง่าย!)
 
-ส่งข้อความตามรูปแบบนี้:
-ชื่อกิจกรรม | รายละเอียด | วันที่
+🔸 แบบง่าย (แนะนำ):
+/add บัตรตำรวจ ผกก.อยู่ที่กระเป๋าปืน 2025-08-08
 
-ตัวอย่าง:
+🔸 แบบละเอียด:
+/add การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20
+
+🔸 แบบไม่ใช้คำสั่ง:
 การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20
 
-หรือใช้คำสั่ง:
-/add การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20"""
+💡 เคล็ดลับ: ใส่วันที่ท้ายสุดรูปแบบ YYYY-MM-DD"""
         
         line_bot_api.reply_message(
             ReplyMessageRequest(
