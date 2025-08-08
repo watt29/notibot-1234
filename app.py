@@ -352,12 +352,17 @@ def handle_message(event):
             return
 
         try:
+            # Log parsing results for debugging
+            app.logger.info(f"Parsed event - Title: '{event_title}', Desc: '{event_description}', Date: '{event_date}'")
+            
             response = supabase_client.table('events').insert({
                 'event_title': event_title,
                 'event_description': event_description,
                 'event_date': str(event_date),
                 'created_by': user_id
             }).execute()
+            
+            app.logger.info(f"Supabase response: {response}")
             
             if response.data and len(response.data) > 0:
                 event_id = response.data[0]['id']
@@ -369,14 +374,19 @@ def handle_message(event):
                     )
                 )
             else:
+                app.logger.error(f"Supabase returned no data: {response}")
                 raise Exception("No data returned from Supabase insert.")
 
         except Exception as e:
             app.logger.error(f"Error adding event to Supabase: {e}")
+            app.logger.error(f"Event data - Title: '{event_title}', Desc: '{event_description}', Date: '{event_date}'")
+            
+            # Return more specific error message
+            error_msg = f"เกิดข้อผิดพลาด: {str(e)[:100]}\nTitle: {event_title}\nDescription: {event_description}\nDate: {event_date}"
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_admin_quick_reply())]
+                    messages=[TextMessage(text=error_msg, quick_reply=create_admin_quick_reply())]
                 )
             )
     elif text == "/today":
