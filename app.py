@@ -23,6 +23,9 @@ supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_SERVICE_KEY')  # Use service role key for full permissions
 supabase_client: Client = create_client(supabase_url, supabase_key)
 
+# Simple in-memory storage for user states (in production, use Redis or database)
+user_states = {}
+
 # Get LINE Channel Access Token and Channel Secret from environment variables
 configuration = Configuration(access_token=os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
@@ -247,6 +250,27 @@ def create_delete_confirm_quick_reply(event_id):
     """Create delete confirmation quick reply buttons"""
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="✅ ยืนยันลบ", text=f"ยืนยันลบ {event_id}")),
+        QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+    ])
+
+def create_date_quick_reply():
+    """Create quick date selection buttons"""
+    today = date.today()
+    dates = []
+    for i in range(7):  # Next 7 days
+        future_date = today + timedelta(days=i)
+        label = "วันนี้" if i == 0 else f"{future_date.day}/{future_date.month}"
+        dates.append(QuickReplyItem(action=MessageAction(label=label, text=str(future_date))))
+    
+    dates.append(QuickReplyItem(action=MessageAction(label="📅 วันอื่น", text="วันอื่น")))
+    dates.append(QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี")))
+    
+    return QuickReply(items=dates)
+
+def create_cancel_quick_reply():
+    """Create cancel operation quick reply"""
+    return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี")),
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
     ])
@@ -737,23 +761,24 @@ def handle_message(event):
             )
         )
     elif text == "เพิ่มกิจกรรม" and event.source.user_id in admin_ids:
-        guide_text = """📝 เพิ่มกิจกรรมใหม่ (ใช้ง่าย!)
+        # Start guided event creation
+        user_states[event.source.user_id] = {"step": "waiting_title", "event_data": {}}
+        
+        guide_text = """📝 เพิ่มกิจกรรมใหม่ - ขั้นตอน 1/3
 
-🔸 แบบง่าย (แนะนำ):
-/add บัตรตำรวจ ผกก.อยู่ที่กระเป๋าปืน 2025-08-08
+🔸 **ส่งชื่อกิจกรรม**
 
-🔸 แบบละเอียด:
-/add การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20
+ตัวอย่าง:
+• บัตรข้าราชการตำรวจ  
+• การประชุมทีมงาน
+• งานวันกำนันผู้ใหญ่บ้าน
 
-🔸 แบบไม่ใช้คำสั่ง:
-การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20
-
-💡 เคล็ดลับ: ใส่วันที่ท้ายสุดรูปแบบ YYYY-MM-DD"""
+💬 แค่พิมพ์ชื่อกิจกรรมแล้วส่งมา"""
         
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=guide_text, quick_reply=create_admin_quick_reply())]
+                messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
             )
         )
     elif text == "จัดการกิจกรรม" and event.source.user_id in admin_ids:
@@ -963,17 +988,20 @@ def handle_message(event):
                 event_data = response.data[0]
                 current_date = event_data.get('event_date', '2025-01-01')
                 
-                guide_text = f"""✏️ แก้ไขกิจกรรม ID: {event_id}
+                # Start guided edit flow
+                user_states[event.source.user_id] = {
+                    "step": "edit_waiting_title", 
+                    "event_id": event_id,
+                    "current_data": event_data
+                }
+                
+                guide_text = f"""✏️ แก้ไขกิจกรรม ID: {event_id} - ขั้นตอน 1/3
 
-📝 ปัจจุบัน: {event_data.get('event_title', '')}
-📋 รายละเอียด: {event_data.get('event_description', '')}  
-📅 วันที่: {current_date}
+📝 **ปัจจุบัน:** {event_data.get('event_title', '')}
 
-🔄 ส่งข้อมูลใหม่ตามรูปแบบ:
-/edit {event_id} | ชื่อใหม่ | รายละเอียดใหม่ | 2025-01-20
+🔸 **ส่งชื่อใหม่** หรือส่ง "เหมือนเดิม" เพื่อข้าม
 
-หรือคัดลอกแล้วแก้ไข:
-/edit {event_id} | {event_data.get('event_title', '')} | {event_data.get('event_description', '')} | {current_date}"""
+💬 แค่พิมพ์ชื่อใหม่แล้วส่งมา"""
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -1104,8 +1132,297 @@ def handle_message(event):
                 )
             )
     else:
+        user_id = event.source.user_id
+        
+        # Handle guided conversation flow for admin
+        if user_id in admin_ids and user_id in user_states:
+            state = user_states[user_id]
+            
+            if state["step"] == "waiting_title":
+                # Save title and ask for description
+                state["event_data"]["title"] = text.strip()
+                state["step"] = "waiting_description"
+                
+                guide_text = f"""📝 เพิ่มกิจกรรม - ขั้นตอน 2/3
+
+✅ ชื่อ: {text.strip()}
+
+🔸 **ส่งรายละเอียดกิจกรรม**
+
+ตัวอย่าง:
+• ผกก. อยู่ในกระเป๋าปืน
+• หารือแผนงาน Q1 
+• เวลา 08.30 น. มอบ มหาราช 2 มหาราช 5
+
+💬 แค่พิมพ์รายละเอียดแล้วส่งมา"""
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                    )
+                )
+                return
+                
+            elif state["step"] == "waiting_description":
+                # Save description and ask for date
+                state["event_data"]["description"] = text.strip()
+                state["step"] = "waiting_date"
+                
+                guide_text = f"""📝 เพิ่มกิจกรรม - ขั้นตอน 3/3
+
+✅ ชื่อ: {state["event_data"]["title"]}
+✅ รายละเอียด: {text.strip()}
+
+🔸 **เลือกวันที่กิจกรรม**
+
+กดปุ่มด้านล่างเพื่อเลือกวันที่ หรือกด "📅 วันอื่น" แล้วพิมพ์ YYYY-MM-DD"""
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
+                    )
+                )
+                return
+                
+            elif state["step"] == "waiting_date":
+                selected_date = text.strip()
+                
+                # Handle "วันอื่น" case
+                if selected_date == "วันอื่น":
+                    guide_text = """📅 ระบุวันที่
+
+พิมพ์วันที่ในรูปแบบ: **YYYY-MM-DD**
+
+ตัวอย่าง:
+• 2025-08-15
+• 2025-09-01
+• 2025-12-25
+
+💬 พิมพ์วันที่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                # Validate date format
+                try:
+                    event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+                except ValueError:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                # Create event
+                try:
+                    response = supabase_client.table('events').insert({
+                        'event_title': state["event_data"]["title"],
+                        'event_description': state["event_data"]["description"],
+                        'event_date': str(event_date),
+                        'created_by': user_id
+                    }).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        event_id = response.data[0]['id']
+                        success_text = f"""🎉 เพิ่มกิจกรรมสำเร็จ!
+
+🆔 ID: {event_id}
+📝 {state["event_data"]["title"]}
+📋 {state["event_data"]["description"]}
+📅 {format_thai_date(str(event_date))}
+
+✅ บันทึกลงฐานข้อมูลแล้ว"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการบันทึก", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    # Clear user state
+                    del user_states[user_id]
+                    return
+                    
+                except Exception as e:
+                    app.logger.error(f"Error creating event via guided flow: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการบันทึกกิจกรรม", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    del user_states[user_id]
+                    return
+            
+            # Edit flow handlers
+            elif state["step"] == "edit_waiting_title":
+                new_title = text.strip() if text.strip() != "เหมือนเดิม" else state["current_data"]["event_title"]
+                state["event_data"]["title"] = new_title
+                state["step"] = "edit_waiting_description"
+                
+                guide_text = f"""✏️ แก้ไขกิจกรรม - ขั้นตอน 2/3
+
+✅ ชื่อ: {new_title}
+
+📋 **ปัจจุบัน:** {state["current_data"].get('event_description', '')}
+
+🔸 **ส่งรายละเอียดใหม่** หรือส่ง "เหมือนเดิม" เพื่อข้าม
+
+💬 แค่พิมพ์รายละเอียดใหม่แล้วส่งมา"""
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                    )
+                )
+                return
+                
+            elif state["step"] == "edit_waiting_description":
+                new_description = text.strip() if text.strip() != "เหมือนเดิม" else state["current_data"]["event_description"]
+                state["event_data"]["description"] = new_description
+                state["step"] = "edit_waiting_date"
+                
+                # Add current date as first option
+                current_date_str = state["current_data"].get('event_date', '')
+                same_date_button = QuickReplyItem(action=MessageAction(label="📅 วันเดิม", text="เหมือนเดิม"))
+                
+                date_buttons = create_date_quick_reply()
+                date_buttons.items.insert(0, same_date_button)
+                
+                guide_text = f"""✏️ แก้ไขกิจกรรม - ขั้นตอน 3/3
+
+✅ ชื่อ: {state["event_data"]["title"]}
+✅ รายละเอียด: {new_description}
+
+📅 **ปัจจุบัน:** {format_thai_date(current_date_str)}
+
+🔸 **เลือกวันที่ใหม่** หรือกด "📅 วันเดิม" เพื่อใช้วันเดิม
+
+กดปุ่มด้านล่างเพื่อเลือกวันที่"""
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=guide_text, quick_reply=date_buttons)]
+                    )
+                )
+                return
+                
+            elif state["step"] == "edit_waiting_date":
+                selected_date = text.strip()
+                
+                if selected_date == "เหมือนเดิม":
+                    event_date_str = state["current_data"]["event_date"]
+                elif selected_date == "วันอื่น":
+                    guide_text = """📅 ระบุวันที่ใหม่
+
+พิมพ์วันที่ในรูปแบบ: **YYYY-MM-DD**
+
+ตัวอย่าง:
+• 2025-08-15
+• 2025-09-01
+• 2025-12-25
+
+💬 พิมพ์วันที่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                else:
+                    # Validate date format
+                    try:
+                        event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+                        event_date_str = str(event_date)
+                    except ValueError:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
+                            )
+                        )
+                        return
+                
+                # Update event
+                try:
+                    response = supabase_client.table('events').update({
+                        'event_title': state["event_data"]["title"],
+                        'event_description': state["event_data"]["description"],
+                        'event_date': event_date_str
+                    }).eq('id', state["event_id"]).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        success_text = f"""🎉 แก้ไขกิจกรรมสำเร็จ!
+
+🆔 ID: {state["event_id"]}
+📝 {state["event_data"]["title"]}
+📋 {state["event_data"]["description"]}
+📅 {format_thai_date(event_date_str)}
+
+✅ อัปเดตในฐานข้อมูลแล้ว"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ ไม่สามารถแก้ไขกิจกรรมได้", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    del user_states[user_id]
+                    return
+                    
+                except Exception as e:
+                    app.logger.error(f"Error editing event via guided flow: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขกิจกรรม", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    del user_states[user_id]
+                    return
+        
+        # Handle cancel during guided flow
+        if user_id in admin_ids and user_id in user_states and text in ["สวัสดี", "ยกเลิก"]:
+            del user_states[user_id]
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="❌ ยกเลิกการเพิ่มกิจกรรมแล้ว", quick_reply=create_admin_quick_reply())]
+                )
+            )
+            return
+        
         # ตรวจสอบว่าเป็น Admin และส่งข้อความแบบ "ชื่อ | รายละเอียด | วันที่" หรือไม่
-        if event.source.user_id in admin_ids and ' | ' in text and len(text.split(' | ')) == 3:
+        if user_id in admin_ids and ' | ' in text and len(text.split(' | ')) == 3:
             parts = text.split(' | ')
             event_title = parts[0].strip()
             event_description = parts[1].strip()
