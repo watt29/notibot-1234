@@ -8,15 +8,14 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, ReplyMessageRequest,
-    TextMessage, FlexMessage, FlexContainer, QuickReply, QuickReplyButton,
+    TextMessage, FlexMessage, QuickReply, QuickReplyButton,
     MessageAction, PostbackAction, PushMessageRequest
 )
 from linebot.v3.webhooks import (
     MessageEvent, TextMessageContent, FollowEvent, UnfollowEvent, PostbackEvent
 )
 from supabase import create_client, Client
-from datetime import datetime, date, timedelta
-import re
+from datetime import datetime, date
 
 # --- Environment and API Setup ---
 dotenv_path = join(dirname(__file__), '.env')
@@ -24,48 +23,49 @@ load_dotenv(dotenv_path)
 
 app = Flask(__name__)
 
-# --- Environment Variable Validation ---
+# --- Environment Variable Validation & API Clients Initialization ---
 def get_env(var_name):
     value = os.environ.get(var_name)
     if not value:
-        print(f'Error: Specify {var_name} as environment variable.')
+        print(f'FATAL: Environment variable {var_name} is not set.')
         sys.exit(1)
     return value
 
-handler = WebhookHandler(get_env('LINE_CHANNEL_SECRET'))
-configuration = Configuration(access_token=get_env('LINE_CHANNEL_ACCESS_TOKEN'))
-supabase: Client = create_client(get_env('SUPABASE_URL'), get_env('SUPABASE_KEY'))
-admin_user_id = get_env('ADMIN_USER_ID')
-admin_user_id = get_env('ADMIN_USER_ID')
+try:
+    channel_secret = get_env('LINE_CHANNEL_SECRET')
+    channel_access_token = get_env('LINE_CHANNEL_ACCESS_TOKEN')
+    admin_user_id = get_env('ADMIN_USER_ID')
+    supabase_url = get_env('SUPABASE_URL')
+    supabase_key = get_env('SUPABASE_KEY')
+
+    handler = WebhookHandler(channel_secret)
+    configuration = Configuration(access_token=channel_access_token)
+    supabase: Client = create_client(supabase_url, supabase_key)
+except SystemExit as e:
+    # Log the exit and re-raise to stop the app
+    app.logger.error("Application exiting due to missing environment variables.")
+    raise e
 
 # --- UI Component Creation ---
-
 def create_quick_reply_buttons(is_admin=False):
+    items = [
+        QuickReplyButton(action=MessageAction(label="เหตุการณ์ล่าสุด", text="ล่าสุด")),
+        QuickReplyButton(action=MessageAction(label="กิจกรรมวันนี้", text="วันนี้")),
+        QuickReplyButton(action=MessageAction(label="ช่วยเหลือ", text="/help")),
+    ]
     if is_admin:
-        items = [
-            QuickReplyButton(action=MessageAction(label="เพิ่มกิจกรรม", text="/add")),
-            QuickReplyButton(action=MessageAction(label="ล่าสุด", text="ล่าสุด")),
-            QuickReplyButton(action=MessageAction(label="ดูสถิติ", text="/stats subscribers")),
-        ]
-    else:
-        items = [
-            QuickReplyButton(action=MessageAction(label="เหตุการณ์ล่าสุด", text="ล่าสุด")),
-            QuickReplyButton(action=MessageAction(label="กิจกรรมวันนี้", text="วันนี้")),
-            QuickReplyButton(action=MessageAction(label="ช่วยเหลือ", text="/help")),
-        ]
+        # Add admin-specific buttons
+        items.insert(0, QuickReplyButton(action=MessageAction(label="เพิ่มกิจกรรม", text="/add")))
+        items.append(QuickReplyButton(action=MessageAction(label="ดูสถิติ", text="/stats subscribers")))
     return QuickReply(items=items)
 
 def create_event_flex_message(event, is_admin=False):
     footer_components = []
     if is_admin:
         footer_components.append({
-            "type": "button",
-            "style": "primary",
-            "color": "#FF5555",
-            "height": "sm",
+            "type": "button", "style": "primary", "color": "#FF5555", "height": "sm",
             "action": {
-                "type": "postback",
-                "label": "ลบกิจกรรมนี้",
+                "type": "postback", "label": "ลบกิจกรรมนี้",
                 "data": f"delete_event_{event['id']}",
                 "displayText": f"ขอลบกิจกรรม ID: {event['id']}"
             }
@@ -74,16 +74,14 @@ def create_event_flex_message(event, is_admin=False):
     return {
         "type": "bubble",
         "header": {
-            "type": "box",
-            "layout": "vertical",
+            "type": "box", "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "Event", "weight": "bold", "color": "#1DB446", "size": "sm"},
+                {"type": "text", "text": "EVENT", "weight": "bold", "color": "#1DB446", "size": "sm"},
                 {"type": "text", "text": event['event_title'], "weight": "bold", "size": "xl", "margin": "md", "wrap": True}
             ]
         },
         "body": {
-            "type": "box",
-            "layout": "vertical",
+            "type": "box", "layout": "vertical",
             "contents": [
                 {"type": "text", "text": "รายละเอียด", "weight": "bold", "size": "md"},
                 {"type": "text", "text": event['event_description'] or "ไม่มีรายละเอียด", "wrap": True, "size": "sm", "margin": "md"},
@@ -100,7 +98,6 @@ def create_event_flex_message(event, is_admin=False):
     }
 
 # --- Database Functions ---
-
 def add_subscriber(user_id):
     try:
         supabase.table('subscribers').insert({"user_id": user_id, "subscribed_at": datetime.now().isoformat()}).execute()
@@ -115,10 +112,9 @@ def remove_subscriber(user_id):
     except Exception as e:
         app.logger.error(f"Error removing subscriber {user_id}: {e}")
 
-def get_events(event_date):
+def get_events_by_date(event_date):
     try:
-        response = supabase.table('events').select('*').eq('event_date', event_date.isoformat()).order('created_at', desc=True).execute()
-        return response.data
+        return supabase.table('events').select('*').eq('event_date', event_date.isoformat()).order('created_at', desc=True).execute().data
     except Exception as e:
         app.logger.error(f"Error fetching events for {event_date}: {e}")
         return []
@@ -126,14 +122,12 @@ def get_events(event_date):
 def get_latest_events(limit=5):
     try:
         today = date.today().isoformat()
-        response = supabase.table('events').select('*').gte('event_date', today).order('event_date').limit(limit).execute()
-        return response.data
+        return supabase.table('events').select('*').gte('event_date', today).order('event_date').limit(limit).execute().data
     except Exception as e:
         app.logger.error(f"Error fetching latest events: {e}")
         return []
 
 # --- Webhook and Event Handlers ---
-
 @app.route("/")
 def health_check():
     return "OK"
@@ -147,6 +141,9 @@ def callback():
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
+    except Exception as e:
+        app.logger.error(f"Error in handler: {e}")
+        abort(500)
     return 'OK'
 
 @handler.add(FollowEvent)
@@ -167,10 +164,12 @@ def handle_unfollow(event):
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
-    data = event.postback.data
     user_id = event.source.user_id
+    if user_id != admin_user_id:
+        return
     
-    if user_id == admin_user_id and data.startswith('delete_event_'):
+    data = event.postback.data
+    if data.startswith('delete_event_'):
         event_id = data.split('_')[-1]
         try:
             supabase.table('events').delete().eq('id', int(event_id)).execute()
@@ -202,33 +201,27 @@ def handle_message(event):
                 parts = text[5:].split(';')
                 if len(parts) != 3:
                     reply_text = "รูปแบบคำสั่งผิดพลาด\nตัวอย่าง: /add หัวข้อ;รายละเอียด;YYYY-MM-DD"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=reply_text)]))
-                    return
-
-                title, desc, event_date_str = [p.strip() for p in parts]
-                try:
-                    event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
-                    new_event = {
-                        'event_title': title,
-                        'event_description': desc,
-                        'event_date': event_date.isoformat(),
-                        'created_by': user_id
-                    }
-                    supabase.table('events').insert(new_event).execute()
-                    
-                    subscribers_res = supabase.table('subscribers').select('user_id').execute()
-                    subscriber_ids = [sub['user_id'] for sub in subscribers_res.data]
-                    if subscriber_ids:
-                        broadcast_message = f"📢 มีกิจกรรมใหม่: {title}\nวันที่: {event_date.strftime('%d %b %Y')}\nรายละเอียด: {desc}"
-                        line_bot_api.push_message(PushMessageRequest(to=subscriber_ids, messages=[TextMessage(text=broadcast_message)]))
-                    
-                    reply_text = f"เพิ่มกิจกรรม '{title}' เรียบร้อยแล้ว และแจ้งเตือนผู้ติดตาม {len(subscriber_ids)} คน"
-                except ValueError:
-                    reply_text = "รูปแบบวันที่ไม่ถูกต้อง กรุณใช้ YYYY-MM-DD"
-                except Exception as e:
-                    reply_text = f"เกิดข้อผิดพลาด: {e}"
-                    app.logger.error(reply_text)
-                
+                else:
+                    title, desc, event_date_str = [p.strip() for p in parts]
+                    try:
+                        event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+                        new_event = {
+                            'event_title': title, 'event_description': desc,
+                            'event_date': event_date.isoformat(), 'created_by': user_id
+                        }
+                        supabase.table('events').insert(new_event).execute()
+                        
+                        subscribers_res = supabase.table('subscribers').select('user_id').execute()
+                        subscriber_ids = [sub['user_id'] for sub in subscribers_res.data]
+                        if subscriber_ids:
+                            broadcast_message = f"📢 มีกิจกรรมใหม่: {title}\nวันที่: {event_date.strftime('%d %b %Y')}\nรายละเอียด: {desc}"
+                            line_bot_api.push_message(PushMessageRequest(to=subscriber_ids, messages=[TextMessage(text=broadcast_message)]))
+                        reply_text = f"เพิ่มกิจกรรม '{title}' เรียบร้อยแล้ว และแจ้งเตือนผู้ติดตาม {len(subscriber_ids)} คน"
+                    except ValueError:
+                        reply_text = "รูปแบบวันที่ไม่ถูกต้อง กรุณใช้ YYYY-MM-DD"
+                    except Exception as e:
+                        reply_text = f"เกิดข้อผิดพลาด: {e}"
+                        app.logger.error(reply_text)
                 line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=reply_text)]))
                 return
 
@@ -246,12 +239,28 @@ def handle_message(event):
             if not events:
                 reply_message = TextMessage(text="ยังไม่มีกิจกรรมเร็วๆ นี้ครับ", quick_reply=create_quick_reply_buttons(is_admin))
         elif text == 'วันนี้':
-            events = get_events(date.today())
+            events = get_events_by_date(date.today())
             if not events:
                 reply_message = TextMessage(text="วันนี้ไม่มีกิจกรรมครับ", quick_reply=create_quick_reply_buttons(is_admin))
         elif text.lower() == '/help':
             reply_message = TextMessage(text="คุณสามารถใช้คำสั่ง 'ล่าสุด' หรือ 'วันนี้' เพื่อดูกิจกรรมได้ครับ", quick_reply=create_quick_reply_buttons(is_admin))
         else:  # Search by keyword
             try:
-                # Using text_search for potentially better keyword matching
-                response = supabase.table('events').select('*').text_search('event_title', f
+                response = supabase.table('events').select('*').text_search('event_title', f"'{text}'").execute()
+                events = response.data
+                if not events:
+                    reply_message = TextMessage(text=f"ไม่พบกิจกรรมที่เกี่ยวกับ '{text}'", quick_reply=create_quick_reply_buttons(is_admin))
+            except Exception as e:
+                app.logger.error(f"Error during text search: {e}")
+                reply_message = TextMessage(text="ขออภัย เกิดข้อผิดพลาดในการค้นหา", quick_reply=create_quick_reply_buttons(is_admin))
+
+        if events:
+            flex_contents = [create_event_flex_message(e, is_admin) for e in events]
+            messages = [FlexMessage(alt_text="รายการกิจกรรม", contents={"type": "carousel", "contents": flex_contents})]
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=messages))
+        elif reply_message:
+            line_bot_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[reply_message]))
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
