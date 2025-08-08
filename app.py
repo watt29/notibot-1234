@@ -154,6 +154,15 @@ def create_main_quick_reply():
         QuickReplyItem(action=MessageAction(label="🔔 สมัครแจ้งเตือน", text="/subscribe"))
     ])
 
+def create_admin_quick_reply():
+    """Create admin menu quick reply buttons"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📝 เพิ่มกิจกรรม", text="เพิ่มกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="📋 จัดการกิจกรรม", text="จัดการกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี")),
+        QuickReplyItem(action=MessageAction(label="ℹ️ วิธีใช้", text="/admin"))
+    ])
+
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
@@ -395,29 +404,79 @@ def handle_message(event):
                 )
             )
     elif text == "/admin" and event.source.user_id in admin_ids:
-        admin_help_text = """🔧 คำสั่ง Admin:
+        admin_help_text = """🔧 เมนู Admin - ใช้ปุ่มด้านล่างได้เลย!
 
-📝 /add ชื่อกิจกรรม | รายละเอียด | YYYY-MM-DD
-   เพิ่มกิจกรรมใหม่
+📝 เพิ่มกิจกรรม = กดปุ่ม "เพิ่มกิจกรรม"
+📋 จัดการกิจกรรม = กดปุ่ม "จัดการกิจกรรม"
 
-📋 /list
-   ดูรายการกิจกรรมทั้งหมด
-
-✏️ /edit [ID] | ชื่อใหม่ | รายละเอียดใหม่ | วันที่ใหม่
-   แก้ไขกิจกรรม
-
-🗑️ /delete [ID]
-   ลบกิจกรรม
-
-ตัวอย่าง:
-/edit 5 | การประชุม | หารือโครงการ | 2025-01-25"""
+📖 คำสั่งแบบเดิม:
+• /add ชื่อ | รายละเอียด | 2025-01-20
+• /edit ID | ชื่อใหม่ | รายละเอียด | วันที่
+• /delete ID"""
         
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=admin_help_text)]
+                messages=[TextMessage(text=admin_help_text, quick_reply=create_admin_quick_reply())]
             )
         )
+    elif text == "เพิ่มกิจกรรม" and event.source.user_id in admin_ids:
+        guide_text = """📝 เพิ่มกิจกรรมใหม่
+
+ส่งข้อความตามรูปแบบนี้:
+ชื่อกิจกรรม | รายละเอียด | วันที่
+
+ตัวอย่าง:
+การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20
+
+หรือใช้คำสั่ง:
+/add การประชุมทีม | หารือแผนงาน Q1 | 2025-01-20"""
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=guide_text, quick_reply=create_admin_quick_reply())]
+            )
+        )
+    elif text == "จัดการกิจกรรม" and event.source.user_id in admin_ids:
+        try:
+            response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
+            events = response.data
+            
+            if events:
+                event_list = "📋 เลือกกิจกรรมที่ต้องการจัดการ:\n\n"
+                for event in events[:8]:  # แสดงแค่ 8 รายการแรก
+                    formatted_date = format_thai_date(event.get('event_date', ''))
+                    event_list += f"🆔 {event['id']} - {event.get('event_title', 'ไม่มีชื่อ')}\n"
+                    event_list += f"📅 {formatted_date}\n"
+                    event_list += f"▫️ แก้ไข: /edit {event['id']} | ชื่อใหม่ | รายละเอียด | วันที่\n"
+                    event_list += f"▫️ ลบ: /delete {event['id']}\n"
+                    event_list += "─" * 25 + "\n\n"
+                
+                if len(events) > 8:
+                    event_list += f"และอีก {len(events) - 8} กิจกรรม...\nใช้ /list เพื่อดูทั้งหมด"
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=event_list, quick_reply=create_admin_quick_reply())]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ\nกดปุ่ม 'เพิ่มกิจกรรม' เพื่อเริ่มต้น", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error listing events for management: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
     elif text == "/list" and event.source.user_id in admin_ids:
         try:
             response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
@@ -576,12 +635,63 @@ def handle_message(event):
                 )
             )
     else:
-        line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ", quick_reply=create_main_quick_reply())]
+        # ตรวจสอบว่าเป็น Admin และส่งข้อความแบบ "ชื่อ | รายละเอียด | วันที่" หรือไม่
+        if event.source.user_id in admin_ids and ' | ' in text and len(text.split(' | ')) == 3:
+            parts = text.split(' | ')
+            event_title = parts[0].strip()
+            event_description = parts[1].strip()
+            event_date_str = parts[2].strip()
+            
+            try:
+                event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องครับ กรุณาใช้ YYYY-MM-DD", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+                return
+            
+            try:
+                response = supabase_client.table('events').insert({
+                    'event_title': event_title,
+                    'event_description': event_description,
+                    'event_date': str(event_date),
+                    'created_by': event.source.user_id
+                }).execute()
+                
+                if response.data and len(response.data) > 0:
+                    event_id = response.data[0]['id']
+                    success_text = f"✅ เพิ่มกิจกรรมสำเร็จ!\n\n📝 {event_title}\n📋 {event_description}\n📅 {format_thai_date(str(event_date))}\n🆔 ID: {event_id}"
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+            except Exception as e:
+                app.logger.error(f"Error adding event via simple format: {e}")
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+        else:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ", quick_reply=create_main_quick_reply())]
+                )
             )
-        )
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
