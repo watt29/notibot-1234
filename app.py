@@ -43,11 +43,12 @@ def format_thai_date(date_str):
     except:
         return date_str
 
-def create_event_flex_message(event_data):
+def create_event_flex_message(event_data, is_admin=False):
     """Create Flex Message for a single event using Supabase data structure"""
     
     # Format the date for display
     formatted_date = format_thai_date(event_data.get('event_date', ''))
+    event_id = event_data.get('id', '')
     
     flex_message_content = {
         "type": "bubble",
@@ -81,6 +82,25 @@ def create_event_flex_message(event_data):
                             "contents": [
                                 {
                                     "type": "text",
+                                    "text": "🆔",
+                                    "size": "sm",
+                                    "flex": 0
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"ID: {event_id}",
+                                    "size": "sm",
+                                    "color": "#999999",
+                                    "margin": "sm"
+                                }
+                            ]
+                        } if is_admin else None,
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {
+                                    "type": "text",
                                     "text": "📅",
                                     "size": "sm",
                                     "flex": 0
@@ -100,6 +120,11 @@ def create_event_flex_message(event_data):
             ]
         }
     }
+    
+    # Filter out None items
+    flex_message_content["body"]["contents"][-1]["contents"] = [
+        item for item in flex_message_content["body"]["contents"][-1]["contents"] if item is not None
+    ]
     
     # Add description if available
     if event_data.get('event_description'):
@@ -126,16 +151,47 @@ def create_event_flex_message(event_data):
         }
         flex_message_content["body"]["contents"][-1]["contents"].append(description_box)
     
+    # Add admin buttons if user is admin
+    if is_admin:
+        flex_message_content["footer"] = {
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "✏️ แก้ไข",
+                        "text": f"แก้ไข {event_id}"
+                    }
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "color": "#ff6b6b",
+                    "action": {
+                        "type": "message",
+                        "label": "🗑️ ลบ",
+                        "text": f"ลบ {event_id}"
+                    }
+                }
+            ]
+        }
+    
     return flex_message_content
 
-def get_single_flex_message(event_data):
-    flex_message_content = create_event_flex_message(event_data)
+def get_single_flex_message(event_data, is_admin=False):
+    flex_message_content = create_event_flex_message(event_data, is_admin)
     return FlexMessage(alt_text="กิจกรรมล่าสุด", contents=FlexContainer.from_dict(flex_message_content))
 
-def create_events_carousel_message(events_list):
+def create_events_carousel_message(events_list, is_admin=False):
     bubbles = []
     for event_data in events_list:
-        bubble_content = create_event_flex_message(event_data)
+        bubble_content = create_event_flex_message(event_data, is_admin)
         bubbles.append(bubble_content)
     
     carousel_content = {
@@ -209,7 +265,9 @@ def handle_message(event):
             events = response.data
 
             if events:
-                flex_message = create_events_carousel_message(events)
+                # Check if user is admin
+                is_admin = event.source.user_id in admin_ids
+                flex_message = create_events_carousel_message(events, is_admin)
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
@@ -396,10 +454,11 @@ def handle_message(event):
             events = response.data
 
             if events:
+                is_admin = event.source.user_id in admin_ids
                 if len(events) == 1:
-                    flex_message = get_single_flex_message(events[0])
+                    flex_message = get_single_flex_message(events[0], is_admin)
                 else:
-                    flex_message = create_events_carousel_message(events)
+                    flex_message = create_events_carousel_message(events, is_admin)
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -435,10 +494,11 @@ def handle_message(event):
             events = response.data
 
             if events:
+                is_admin = event.source.user_id in admin_ids
                 if len(events) == 1:
-                    flex_message = get_single_flex_message(events[0])
+                    flex_message = get_single_flex_message(events[0], is_admin)
                 else:
-                    flex_message = create_events_carousel_message(events)
+                    flex_message = create_events_carousel_message(events, is_admin)
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
@@ -698,6 +758,107 @@ def handle_message(event):
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ")]
+                )
+            )
+    elif text.startswith("แก้ไข ") and event.source.user_id in admin_ids:
+        # Handle "แก้ไข ID" from Flex Message button
+        try:
+            event_id = int(text[len("แก้ไข "):].strip())
+            
+            # Get current event data
+            response = supabase_client.table('events').select('*').eq('id', event_id).execute()
+            if response.data and len(response.data) > 0:
+                event_data = response.data[0]
+                current_date = event_data.get('event_date', '2025-01-01')
+                
+                guide_text = f"""✏️ แก้ไขกิจกรรม ID: {event_id}
+
+📝 ปัจจุบัน: {event_data.get('event_title', '')}
+📋 รายละเอียด: {event_data.get('event_description', '')}  
+📅 วันที่: {current_date}
+
+🔄 ส่งข้อมูลใหม่ตามรูปแบบ:
+/edit {event_id} | ชื่อใหม่ | รายละเอียดใหม่ | 2025-01-20
+
+หรือคัดลอกแล้วแก้ไข:
+/edit {event_id} | {event_data.get('event_title', '')} | {event_data.get('event_description', '')} | {current_date}"""
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=guide_text, quick_reply=create_admin_quick_reply())]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+        except ValueError:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error handling edit request: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+    elif text.startswith("ลบ ") and event.source.user_id in admin_ids:
+        # Handle "ลบ ID" from Flex Message button
+        try:
+            event_id = int(text[len("ลบ "):].strip())
+            
+            # Get event details for confirmation
+            response = supabase_client.table('events').select('*').eq('id', event_id).execute()
+            if response.data and len(response.data) > 0:
+                event_data = response.data[0]
+                
+                confirm_text = f"""🗑️ ยืนยันการลบกิจกรรม?
+
+🆔 ID: {event_id}
+📝 {event_data.get('event_title', '')}
+📋 {event_data.get('event_description', '')}
+📅 {format_thai_date(event_data.get('event_date', ''))}
+
+⚠️ การลบไม่สามารถย้อนกลับได้!
+
+✅ ยืนยันลบ: /delete {event_id}
+❌ ยกเลิก: กดปุ่ม "เมนูหลัก" """
+                
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=confirm_text, quick_reply=create_admin_quick_reply())]
+                    )
+                )
+            else:
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+        except ValueError:
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error handling delete request: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
                 )
             )
     else:
