@@ -4,7 +4,7 @@ from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi, ReplyMessageRequest,
     TextMessage, FlexMessage, FlexContainer, QuickReply, QuickReplyItem,
-    MessageAction
+    MessageAction, PushMessageRequest
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent
 from datetime import datetime, date, timedelta
@@ -242,6 +242,7 @@ def create_admin_quick_reply():
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="📝 เพิ่มกิจกรรม", text="เพิ่มกิจกรรม")),
         QuickReplyItem(action=MessageAction(label="📋 จัดการกิจกรรม", text="จัดการกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="📢 ส่งแจ้งเตือน", text="ส่งแจ้งเตือน")),
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี")),
         QuickReplyItem(action=MessageAction(label="ℹ️ วิธีใช้", text="/admin"))
     ])
@@ -754,11 +755,13 @@ def handle_message(event):
 
 📝 เพิ่มกิจกรรม = กดปุ่ม "เพิ่มกิจกรรม"
 📋 จัดการกิจกรรม = กดปุ่ม "จัดการกิจกรรม"
+📢 ส่งแจ้งเตือน = กดปุ่ม "ส่งแจ้งเตือน"
 
 📖 คำสั่งแบบเดิม:
 • /add ชื่อ | รายละเอียด | 2025-01-20
 • /edit ID | ชื่อใหม่ | รายละเอียด | วันที่
-• /delete ID"""
+• /delete ID
+• /notify ข้อความ (ส่งแจ้งเตือนให้ทุกคน)"""
         
         line_bot_api.reply_message(
             ReplyMessageRequest(
@@ -824,6 +827,55 @@ def handle_message(event):
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
+                )
+            )
+    elif text == "ส่งแจ้งเตือน" and event.source.user_id in admin_ids:
+        # Start guided notification sending
+        try:
+            # Get subscriber count
+            subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+            subscriber_count = len(subscribers_response.data) if subscribers_response.data else 0
+            
+            # Get upcoming events for quick notification options
+            today = date.today()
+            upcoming_response = supabase_client.table('events').select('*').gte('event_date', str(today)).order('event_date', desc=False).limit(5).execute()
+            upcoming_events = upcoming_response.data if upcoming_response.data else []
+            
+            user_states[event.source.user_id] = {"step": "notify_menu"}
+            
+            # Create notification menu
+            notify_menu = QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="📝 ข้อความกำหนดเอง", text="ข้อความกำหนดเอง")),
+                QuickReplyItem(action=MessageAction(label="📅 แจ้งกิจกรรมถัดไป", text="แจ้งกิจกรรมถัดไป")),
+                QuickReplyItem(action=MessageAction(label="📊 ดูสถิติผู้สมัคร", text="ดูสถิติผู้สมัคร")),
+                QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
+            ])
+            
+            guide_text = f"""📢 ส่งแจ้งเตือนให้ผู้สมัคร
+
+👥 **จำนวนผู้สมัครปัจจุบัน:** {subscriber_count} คน
+📅 **กิจกรรมถัดไป:** {len(upcoming_events)} รายการ
+
+🔸 **เลือกประเภทการแจ้งเตือน:**
+
+• **ข้อความกำหนดเอง** - พิมพ์ข้อความเอง
+• **แจ้งกิจกรรมถัดไป** - แจ้งกิจกรรมที่กำลังจะมาถึง
+• **ดูสถิติผู้สมัคร** - ดูข้อมูลผู้สมัครรับแจ้งเตือน
+
+เลือกปุ่มด้านล่างเพื่อเริ่มส่งแจ้งเตือน"""
+            
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=guide_text, quick_reply=notify_menu)]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error preparing notification menu: {e}")
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการเตรียมเมนูแจ้งเตือน", quick_reply=create_admin_quick_reply())]
                 )
             )
     elif text == "/list" and event.source.user_id in admin_ids:
@@ -1426,6 +1478,224 @@ def handle_message(event):
                     )
                 return
             
+            # Notification flow handlers (admin only)
+            elif user_id in admin_ids and state["step"] == "notify_menu":
+                selected_option = text.strip()
+                
+                if selected_option == "ข้อความกำหนดเอง":
+                    state["step"] = "notify_custom_input"
+                    
+                    guide_text = """📝 ข้อความกำหนดเอง
+
+🔸 **พิมพ์ข้อความที่ต้องการส่ง:**
+
+ตัวอย่าง:
+• 🔔 อย่าลืมกิจกรรมวันพรุ่งนี้นะครับ!
+• ⚠️ เลื่องกิจกรรมประชุม เนื่องจากฝนตก
+• 🎉 ขอเชิญร่วมกิจกรรมวันแม่ วันอาทิตย์นี้
+
+💬 พิมพ์ข้อความแล้วส่งมา (จะส่งให้ผู้สมัครทุกคน)"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "แจ้งกิจกรรมถัดไป":
+                    # Get next upcoming event
+                    try:
+                        today = date.today()
+                        response = supabase_client.table('events').select('*').gte('event_date', str(today)).order('event_date', desc=False).limit(1).execute()
+                        
+                        if response.data and len(response.data) > 0:
+                            event_data = response.data[0]
+                            formatted_date = format_thai_date(event_data.get('event_date', ''))
+                            
+                            notification_message = f"""🔔 แจ้งเตือนกิจกرรม
+
+📝 **{event_data.get('event_title', '')}**
+📋 {event_data.get('event_description', '')}
+📅 **วันที่:** {formatted_date}
+
+📲 ส่งจาก: ระบบแจ้งเตือนกิจกรรม"""
+                            
+                            # Send to all subscribers
+                            subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+                            if subscribers_response.data:
+                                sent_count = 0
+                                failed_count = 0
+                                
+                                for subscriber in subscribers_response.data:
+                                    try:
+                                        line_bot_api.push_message(
+                                            PushMessageRequest(
+                                                to=subscriber['user_id'],
+                                                messages=[TextMessage(text=notification_message)]
+                                            )
+                                        )
+                                        sent_count += 1
+                                    except Exception as e:
+                                        app.logger.error(f"Failed to send notification to {subscriber['user_id']}: {e}")
+                                        failed_count += 1
+                                
+                                success_message = f"""📢 ส่งแจ้งเตือนสำเร็จ!
+
+📝 **กิจกรรม:** {event_data.get('event_title', '')}
+✅ **ส่งสำเร็จ:** {sent_count} คน
+❌ **ส่งไม่สำเร็จ:** {failed_count} คน
+
+📊 **รวม:** {sent_count + failed_count} คน"""
+                                
+                                line_bot_api.reply_message(
+                                    ReplyMessageRequest(
+                                        reply_token=event.reply_token,
+                                        messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
+                                    )
+                                )
+                            else:
+                                line_bot_api.reply_message(
+                                    ReplyMessageRequest(
+                                        reply_token=event.reply_token,
+                                        messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                                    )
+                                )
+                        else:
+                            line_bot_api.reply_message(
+                                ReplyMessageRequest(
+                                    reply_token=event.reply_token,
+                                    messages=[TextMessage(text="❌ ไม่มีกิจกรรมถัดไปที่จะแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                                )
+                            )
+                        
+                        del user_states[user_id]
+                        return
+                        
+                    except Exception as e:
+                        app.logger.error(f"Error sending event notification: {e}")
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                        del user_states[user_id]
+                        return
+                
+                elif selected_option == "ดูสถิติผู้สมัคร":
+                    try:
+                        # Get subscriber statistics
+                        subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+                        subscriber_count = len(subscribers_response.data) if subscribers_response.data else 0
+                        
+                        # Get total events
+                        events_response = supabase_client.table('events').select('id').execute()
+                        total_events = len(events_response.data) if events_response.data else 0
+                        
+                        # Get upcoming events
+                        today = date.today()
+                        upcoming_response = supabase_client.table('events').select('id').gte('event_date', str(today)).execute()
+                        upcoming_events = len(upcoming_response.data) if upcoming_response.data else 0
+                        
+                        stats_text = f"""📊 สถิติระบบแจ้งเตือน
+
+👥 **ผู้สมัครรับแจ้งเตือน:** {subscriber_count} คน
+📋 **กิจกรรมทั้งหมด:** {total_events} รายการ
+📅 **กิจกรรมถัดไป:** {upcoming_events} รายการ
+
+💡 **การใช้งาน:**
+• ผู้ใช้สามารถกดปุ่ม "🔔 สมัครแจ้งเตือน" เพื่อสมัคร
+• Admin สามารถส่งแจ้งเตือนผ่านเมนูนี้
+• ระบบจะส่งข้อความไปหาผู้สมัครทุกคน"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=stats_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                        
+                        del user_states[user_id]
+                        return
+                        
+                    except Exception as e:
+                        app.logger.error(f"Error getting subscriber stats: {e}")
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการดึงสถิติ", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                        del user_states[user_id]
+                        return
+                
+                return
+            
+            elif user_id in admin_ids and state["step"] == "notify_custom_input":
+                custom_message = text.strip()
+                del user_states[user_id]
+                
+                try:
+                    # Send custom message to all subscribers
+                    subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+                    
+                    if subscribers_response.data:
+                        sent_count = 0
+                        failed_count = 0
+                        
+                        notification_text = f"""📢 {custom_message}
+
+📲 ส่งจาก: ระบบแจ้งเตือนกิจกรรม"""
+                        
+                        for subscriber in subscribers_response.data:
+                            try:
+                                line_bot_api.push_message(
+                                    PushMessageRequest(
+                                        to=subscriber['user_id'],
+                                        messages=[TextMessage(text=notification_text)]
+                                    )
+                                )
+                                sent_count += 1
+                            except Exception as e:
+                                app.logger.error(f"Failed to send custom notification to {subscriber['user_id']}: {e}")
+                                failed_count += 1
+                        
+                        success_message = f"""📢 ส่งข้อความกำหนดเองสำเร็จ!
+
+💬 **ข้อความ:** {custom_message}
+✅ **ส่งสำเร็จ:** {sent_count} คน
+❌ **ส่งไม่สำเร็จ:** {failed_count} คน
+
+📊 **รวม:** {sent_count + failed_count} คน"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    return
+                    
+                except Exception as e:
+                    app.logger.error(f"Error sending custom notification: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งข้อความ", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    return
+            
             # Admin-only flows
             elif user_id in admin_ids and state["step"] == "waiting_title":
                 # Save title and ask for description
@@ -1981,8 +2251,68 @@ def handle_message(event):
             )
             return
         
+        # Handle /notify command for quick notifications
+        if text.startswith("/notify ") and user_id in admin_ids:
+            custom_message = text[len("/notify "):].strip()
+            
+            try:
+                # Send message to all subscribers
+                subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+                
+                if subscribers_response.data:
+                    sent_count = 0
+                    failed_count = 0
+                    
+                    notification_text = f"""📢 {custom_message}
+
+📲 ส่งจาก: ระบบแจ้งเตือนกิจกรรม"""
+                    
+                    for subscriber in subscribers_response.data:
+                        try:
+                            line_bot_api.push_message(
+                                PushMessageRequest(
+                                    to=subscriber['user_id'],
+                                    messages=[TextMessage(text=notification_text)]
+                                )
+                            )
+                            sent_count += 1
+                        except Exception as e:
+                            app.logger.error(f"Failed to send notification via command to {subscriber['user_id']}: {e}")
+                            failed_count += 1
+                    
+                    success_message = f"""📢 ส่งข้อความสำเร็จ!
+
+💬 **ข้อความ:** {custom_message}
+✅ **ส่งสำเร็จ:** {sent_count} คน
+❌ **ส่งไม่สำเร็จ:** {failed_count} คน
+
+📊 **รวม:** {sent_count + failed_count} คน"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+            except Exception as e:
+                app.logger.error(f"Error sending notification via command: {e}")
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งข้อความ", quick_reply=create_admin_quick_reply())]
+                    )
+                )
+            return
+        
         # ตรวจสอบว่าเป็น Admin และส่งข้อความแบบ "ชื่อ | รายละเอียด | วันที่" หรือไม่
-        if user_id in admin_ids and ' | ' in text and len(text.split(' | ')) == 3:
+        elif user_id in admin_ids and ' | ' in text and len(text.split(' | ')) == 3:
             parts = text.split(' | ')
             event_title = parts[0].strip()
             event_description = parts[1].strip()
