@@ -71,8 +71,8 @@ def detect_incomplete_command(text):
     if text in ["search_phone", "หาเบอร์", "ค้นหา", "หา"]:
         return {
             "type": "incomplete_search", 
-            "message": "🔍 กรุณาใส่คำค้นหา\n\n💡 สามารถค้นหาได้:\n• ชื่อ: หาเบอร์ สมชาย\n• เบอร์: หาเบอร์ 081\n• หลายคำ: หาเบอร์ สมชาย 081",
-            "suggestions": ["หาเบอร์ สมชาย", "หาเบอร์ 081", "หาเบอร์ คุณ"]
+            "message": "🔍 กรุณาใส่ชื่อหรือเบอร์โทรที่ต้องการค้นหา\n\n💡 ตัวอย่าง:\n• หาเบอร์ จีรวัฒน์\n• หาเบอร์ 093",
+            "suggestions": ["หาเบอร์ จีรวัฒน์", "หาเบอร์ 093", "เบอร์ทั้งหมด"]
         }
     
     return None
@@ -81,8 +81,8 @@ def create_contact_quick_reply():
     """Create quick reply for contact management"""
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="📋 เบอร์ทั้งหมด", text="เบอร์ทั้งหมด")),
         QuickReplyItem(action=MessageAction(label="🔍 หาเบอร์", text="หาเบอร์ ")),
-        QuickReplyItem(action=MessageAction(label="📋 ดูทั้งหมด", text="เบอร์ทั้งหมด")),
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
     ])
 
@@ -131,7 +131,7 @@ def handle_search_contact_simple(query, event):
     contacts = search_contacts_multi_keyword(query)
     
     if not contacts:
-        error_msg = "❌ ไม่พบข้อมูลที่ตรงกับคำค้นหา\n\n💡 ลองใช้คำค้นหาอื่น เช่น บางส่วนของชื่อ หรือเลขเบอร์"
+        error_msg = "❌ ไม่พบเบอร์ที่ต้องการ\n\n💡 ลองค้นหาด้วยชื่ออื่น หรือดูรายการทั้งหมด"
         quick_reply = create_contact_quick_reply()
         
         safe_line_api_call(line_bot_api.reply_message,
@@ -414,16 +414,13 @@ def create_pagination_quick_reply(page, total_pages, command_prefix="ล่า�
     return QuickReply(items=items)
 
 def create_main_quick_reply():
-    """Create main menu quick reply buttons - รวมทั้งระบบเดิมและใหม่"""
+    """Create main menu quick reply buttons - เรียบง่าย ใช้งานง่าย"""
     return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมล่าสุด", text="ล่าสุด")),
-        QuickReplyItem(action=MessageAction(label="📋 กิจกรรมวันนี้", text="/today")),
-        QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
-        QuickReplyItem(action=MessageAction(label="🔍 หาเบอร์", text="หาเบอร์ ")),
-        QuickReplyItem(action=MessageAction(label="📱 เบอร์ทั้งหมด", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมวันนี้", text="/today")),
         QuickReplyItem(action=MessageAction(label="🔍 ค้นหากิจกรรม", text="/search")),
-        QuickReplyItem(action=MessageAction(label="🗓️ เดือนนี้", text="/month")),
-        QuickReplyItem(action=MessageAction(label="🔔 สมัครแจ้งเตือน", text="/subscribe"))
+        QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="📱 เบอร์ทั้งหมด", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมล่าสุด", text="ล่าสุด"))
     ])
 
 def create_admin_quick_reply():
@@ -552,7 +549,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.6-supabase-fix"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.7-ui-simplify"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -602,7 +599,7 @@ def handle_message(event):
     text = event.message.text
     if text == "สวัสดี":
         message = TextMessage(
-            text="สวัสดีครับ! ยินดีต้อนรับ 🎉\n\n📅 **ระบบแจ้งเตือนกิจกรรม**\n• ดูกิจกรรมต่างๆ\n• ค้นหากิจกรรม\n\n📞 **สมุดเบอร์โทร**\n• เพิ่มเบอร์ ชื่อ เบอร์\n• หาเบอร์ ชื่อ\n• เบอร์ทั้งหมด\n\nเลือกได้จากเมนูด้านล่าง 👇",
+            text="สวัสดีครับ! ยินดีต้อนรับ 🎉\n\n📅 **ระบบแจ้งเตือนกิจกรรม**\n📞 **สมุดเบอร์โทร**\n\nเลือกได้จากปุ่มด้านล่าง 👇",
             quick_reply=create_main_quick_reply()
         )
         safe_line_api_call(line_bot_api.reply_message,
