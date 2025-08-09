@@ -2,10 +2,10 @@ name: Daily Event Notifications
 
 on:
   schedule:
-    # Run twice daily: 8:00 AM and 6:00 PM Thai time (UTC+7)
-    # 8:00 AM Thai = 1:00 AM UTC
+    # Run twice daily: 6:00 AM and 6:00 PM Thai time (UTC+7)
+    # 6:00 AM Thai = 11:00 PM UTC (previous day)
     # 6:00 PM Thai = 11:00 AM UTC
-    - cron: '0 1 * * *'   # 8:00 AM Thai time
+    - cron: '0 23 * * *'  # 6:00 AM Thai time
     - cron: '0 11 * * *'  # 6:00 PM Thai time
   workflow_dispatch: # Allow manual trigger
 
