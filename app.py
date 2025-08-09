@@ -976,6 +976,7 @@ def handle_message(event):
                 messages=[TextMessage(text=admin_help_text, quick_reply=create_admin_quick_reply())]
             )
         )
+        return
     elif text == "เพิ่มกิจกรรม" and event.source.user_id in admin_ids:
         # Start guided event creation
         user_states[event.source.user_id] = {"step": "waiting_title", "event_data": {}}
@@ -997,6 +998,7 @@ def handle_message(event):
                 messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
             )
         )
+        return
     elif text == "จัดการกิจกรรม" and event.source.user_id in admin_ids:
         try:
             # Log for debugging
@@ -2811,6 +2813,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 messages=[TextMessage(text=help_text, quick_reply=create_contact_quick_reply())]
             )
         )
+        return
     
     # Handle admin contact commands (disabled - function not implemented)
     # elif handle_admin_commands(text, event, line_bot_api, admin_ids, create_admin_quick_reply):
