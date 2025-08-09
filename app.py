@@ -105,8 +105,9 @@ def handle_add_contact_simple(data, event, user_id):
         )
         return
     
-    name = parts[0]
-    phone = parts[1]
+    # รองรับชื่อหลายคำ - เบอร์โทรอยู่ท้ายสุด
+    phone = parts[-1]  # เบอร์โทรคือคำสุดท้าย
+    name = " ".join(parts[:-1])  # ชื่อคือทุกคำยกเว้นคำสุดท้าย
     
     result = add_contact(name, phone, user_id)
     
@@ -551,7 +552,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.0-clean-deploy"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.1-contact-fix"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -2797,8 +2798,9 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # Handle English commands (old format)
     elif text.startswith("add_phone "):
-        text = text.replace("add_phone ", "เพิ่มเบอร์ ")
-        handle_add_contact_user(text, event, line_bot_api, create_main_quick_reply)
+        data = text.replace("add_phone ", "")
+        user_id = event.source.user_id
+        handle_add_contact_simple(data, event, user_id)
     
     elif text.startswith("search_phone "):
         text = text.replace("search_phone ", "หาเบอร์ ")
@@ -2806,8 +2808,9 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # Handle Thai commands (new format)
     elif converted_command.startswith("add_phone "):
-        thai_text = converted_command.replace("add_phone ", "เพิ่มเบอร์ ")
-        handle_add_contact_user(thai_text, event, line_bot_api, create_main_quick_reply)
+        data = converted_command.replace("add_phone ", "")
+        user_id = event.source.user_id
+        handle_add_contact_simple(data, event, user_id)
     
     elif converted_command.startswith("search_phone "):
         thai_text = converted_command.replace("search_phone ", "หาเบอร์ ")
