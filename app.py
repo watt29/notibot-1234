@@ -430,8 +430,9 @@ def create_main_quick_reply():
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="🎯 กิจกรรมวันนี้", text="/today")),
         QuickReplyItem(action=MessageAction(label="🔍 ค้นหากิจกรรม", text="/search")),
-        QuickReplyItem(action=MessageAction(label="📞 สมุดเบอร์", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="📞 สมุดเบอร์", text="ค้นหาเบอร์อัจฉริยะ")),
         QuickReplyItem(action=MessageAction(label="📅 กิจกรรมทั้งหมด", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="📝 คำสั่งทั้งหมด", text="คำสั่งทั้งหมด")),
         QuickReplyItem(action=MessageAction(label="💡 วิธีใช้", text="help"))
     ])
 
@@ -507,6 +508,60 @@ def create_compact_contact_quick_reply():
         QuickReplyItem(action=MessageAction(label="📊 สถิติ", text="สถิติเบอร์")),
         QuickReplyItem(action=MessageAction(label="📱 มือถือ", text="หาเบอร์ mobile")),
         QuickReplyItem(action=MessageAction(label="☎️ บ้าน", text="หาเบอร์ landline")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
+def create_all_commands_quick_reply():
+    """Create comprehensive quick reply for ALL system commands"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📅 วันนี้", text="/today")),
+        QuickReplyItem(action=MessageAction(label="🔜 ถัดไป", text="/next")),
+        QuickReplyItem(action=MessageAction(label="📆 เดือน", text="/month")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหา", text="/search")),
+        QuickReplyItem(action=MessageAction(label="📋 ล่าสุด", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="📞 เบอร์", text="ค้นหาเบอร์อัจฉริยะ")),
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่ม", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="📊 สถิติ", text="สถิติเบอร์")),
+        QuickReplyItem(action=MessageAction(label="💡 Help", text="help")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี")),
+        QuickReplyItem(action=MessageAction(label="🔔 ติดตาม", text="/subscribe")),
+        QuickReplyItem(action=MessageAction(label="⚙️ Admin", text="/admin"))
+    ])
+
+def create_search_commands_quick_reply():
+    """Quick reply for all search-related commands"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="🔍 กิจกรรม", text="/search")),
+        QuickReplyItem(action=MessageAction(label="📞 เบอร์อัจฉริยะ", text="ค้นหาเบอร์อัจฉริยะ")),
+        QuickReplyItem(action=MessageAction(label="📱 มือถือ", text="หาเบอร์ mobile")),
+        QuickReplyItem(action=MessageAction(label="☎️ บ้าน", text="หาเบอร์ landline")),
+        QuickReplyItem(action=MessageAction(label="🕐 ล่าสุด", text="หาเบอร์ recent")),
+        QuickReplyItem(action=MessageAction(label="📋 ทั้งหมด", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
+def create_admin_all_commands_quick_reply():
+    """Quick reply for ALL admin commands"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่มกิจกรรม", text="เพิ่มกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="⚙️ จัดการ", text="จัดการกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="📢 แจ้งเตือน", text="ส่งแจ้งเตือน")),
+        QuickReplyItem(action=MessageAction(label="📋 รายการ", text="/list")),
+        QuickReplyItem(action=MessageAction(label="📞 จัดการเบอร์", text="/contacts")),
+        QuickReplyItem(action=MessageAction(label="📄 ส่งออก", text="ส่งออกเบอร์")),
+        QuickReplyItem(action=MessageAction(label="📊 รายงาน", text="admin_reports")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
+def create_date_commands_quick_reply():
+    """Quick reply for date-related commands"""  
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📅 วันนี้", text="/today")),
+        QuickReplyItem(action=MessageAction(label="🔜 ถัดไป", text="/next")),
+        QuickReplyItem(action=MessageAction(label="📆 เดือนนี้", text="/month")),
+        QuickReplyItem(action=MessageAction(label="📋 ล่าสุด 5", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="📋 ล่าสุด 10", text="ล่าสุด 10")),
+        QuickReplyItem(action=MessageAction(label="📋 ล่าสุด 20", text="ล่าสุด 20")),
         QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
     ])
 
@@ -3022,6 +3077,125 @@ https://notibot-1234.onrender.com/send-notifications"""
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=help_text, quick_reply=create_comprehensive_quick_reply())]
+            )
+        )
+        return
+    
+    # Show ALL commands menu
+    elif text in ["คำสั่งทั้งหมด", "all", "ทั้งหมด", "commands"]:
+        help_text = """📝 **คำสั่งทั้งหมดในระบบ**
+
+📅 **กิจกรรม:** วันนี้, ถัดไป, เดือน, ค้นหา, ล่าสุด
+📞 **สมุดเบอร์:** เพิ่ม, หา, สถิติ, มือถือ, บ้าน
+👤 **ผู้ใช้:** ติดตาม, ช่วยเหลือ
+👨‍💼 **Admin:** จัดการ, แจ้งเตือน, ส่งออก
+
+💡 **12 คำสั่งหลัก กดเลย!**"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_all_commands_quick_reply())]
+            )
+        )
+        return
+    
+    # Show search commands only
+    elif text in ["คำสั่งค้นหา", "search", "ค้นหา", "หา"]:
+        help_text = """🔍 **คำสั่งค้นหาทั้งหมด**
+
+📅 **ค้นหากิจกรรม:** ค้นหาจากชื่อ/วันที่
+📞 **ค้นหาเบอร์อัจฉริยะ:** หลายพันรายการ
+📱 **มือถือ:** เบอร์ 08x, 09x, 06x
+☎️ **บ้าน:** เบอร์บ้าน/สำนักงาน
+🕐 **ล่าสุด:** เบอร์ที่เพิ่มใหม่
+
+💡 **ค้นหาอะไรก็ได้!**"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_search_commands_quick_reply())]
+            )
+        )
+        return
+    
+    # Show admin commands only (admin only)
+    elif text in ["คำสั่งแอดมิน", "admin commands", "แอดมิน"] and event.source.user_id in admin_ids:
+        help_text = """👨‍💼 **คำสั่งแอดมินทั้งหมด**
+
+➕ **เพิ่มกิจกรรม:** เพิ่มกิจกรรมใหม่
+⚙️ **จัดการกิจกรรม:** แก้ไข/ลบ
+📢 **ส่งแจ้งเตือน:** ส่งข้อความให้ผู้ติดตาม
+📋 **รายการ:** ดูกิจกรรมทั้งหมด  
+📞 **จัดการเบอร์:** เมนูจัดการเบอร์โทร
+📄 **ส่งออกเบอร์:** ส่งออก Excel
+📊 **รายงาน:** ดูรายงานระบบ
+
+💼 **สิทธิ์แอดมินเท่านั้น**"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_admin_all_commands_quick_reply())]
+            )
+        )
+        return
+    
+    # Show date commands only
+    elif text in ["คำสั่งวันที่", "date", "วันที่", "กิจกรรม"]:
+        help_text = """📅 **คำสั่งวันที่/กิจกรรมทั้งหมด**
+
+📅 **วันนี้:** กิจกรรมวันนี้
+🔜 **ถัดไป:** กิจกรรม 5 รายการถัดไป  
+📆 **เดือนนี้:** กิจกรรมทั้งเดือน
+📋 **ล่าสุด:** 5/10/20 รายการล่าสุด
+
+💡 **ดูกิจกรรมได้หลายแบบ!**"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_date_commands_quick_reply())]
+            )
+        )
+        return
+
+    # Handle main help command 
+    elif text.lower() in ["help", "ช่วยเหลือ", "วิธีใช้", "?", "คู่มือ"]:
+        help_text = """💡 **คู่มือใช้งาน LINE Bot**
+
+📝 **Quick Reply เมนูทั้งหมด:**
+• **คำสั่งทั้งหมด** - ดูคำสั่ง 12 ตัวหลัก
+• **คำสั่งค้นหา** - เมนูค้นหาทั้งหมด  
+• **คำสั่งวันที่** - เมนูกิจกรรม/วันที่
+• **คำสั่งแอดมิน** - เมนูแอดมิน (Admin เท่านั้น)
+• **เมนูรวม** - เมนูรวมสั้นๆ
+
+📅 **กิจกรรม:**
+• /today, /next, /month, /search, ล่าสุด
+
+📞 **สมุดเบอร์:**
+• เพิ่มเบอร์, ค้นหาเบอร์อัจฉริยะ, สถิติเบอร์
+
+👤 **ทั่วไป:**
+• /subscribe - สมัครรับแจ้งเตือน
+
+🎯 **กดปุ่มด้านล่างเพื่อดูเมนูทั้งหมด!**"""
+        
+        # Create help quick reply with all menu options
+        help_quick_reply = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label="📝 คำสั่งทั้งหมด", text="คำสั่งทั้งหมด")),
+            QuickReplyItem(action=MessageAction(label="🔍 คำสั่งค้นหา", text="คำสั่งค้นหา")),
+            QuickReplyItem(action=MessageAction(label="📅 คำสั่งวันที่", text="คำสั่งวันที่")),
+            QuickReplyItem(action=MessageAction(label="🚀 เมนูรวม", text="เมนูรวม")),
+            QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+        ])
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=help_quick_reply)]
             )
         )
         return
