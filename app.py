@@ -414,26 +414,24 @@ def create_pagination_quick_reply(page, total_pages, command_prefix="ล่า�
     return QuickReply(items=items)
 
 def create_main_quick_reply():
-    """Create main menu quick reply buttons - เรียบง่าย ใช้งานง่าย"""
+    """Create main menu quick reply buttons - Modern, intuitive design"""
     return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมวันนี้", text="/today")),
+        QuickReplyItem(action=MessageAction(label="🎯 กิจกรรมวันนี้", text="/today")),
         QuickReplyItem(action=MessageAction(label="🔍 ค้นหากิจกรรม", text="/search")),
-        QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
-        QuickReplyItem(action=MessageAction(label="📱 เบอร์ทั้งหมด", text="เบอร์ทั้งหมด")),
-        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมล่าสุด", text="ล่าสุด"))
+        QuickReplyItem(action=MessageAction(label="📞 สมุดเบอร์", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="📅 กิจกรรมทั้งหมด", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="💡 วิธีใช้", text="help"))
     ])
 
 def create_admin_quick_reply():
-    """Create admin menu quick reply buttons - รวมทั้งระบบเดิมและใหม่"""
+    """Create admin menu quick reply buttons - Organized and streamlined"""
     return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="📝 เพิ่มกิจกรรม", text="เพิ่มกิจกรรม")),
-        QuickReplyItem(action=MessageAction(label="📋 จัดการกิจกรรม", text="จัดการกิจกรรม")),
-        QuickReplyItem(action=MessageAction(label="📞 จัดการเบอร์", text="/contacts")),
-        QuickReplyItem(action=MessageAction(label="📊 เบอร์ทั้งหมด", text="/list")),
-        QuickReplyItem(action=MessageAction(label="📁 Export Excel", text="/export")),
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่มกิจกรรม", text="เพิ่มกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="⚙️ จัดการกิจกรรม", text="จัดการกิจกรรม")),
+        QuickReplyItem(action=MessageAction(label="📋 จัดการเบอร์", text="/contacts")),
         QuickReplyItem(action=MessageAction(label="📢 ส่งแจ้งเตือน", text="ส่งแจ้งเตือน")),
-        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี")),
-        QuickReplyItem(action=MessageAction(label="ℹ️ วิธีใช้", text="/admin"))
+        QuickReplyItem(action=MessageAction(label="📊 รายงาน", text="admin_reports")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
     ])
 
 def create_delete_confirm_quick_reply(event_id):
@@ -587,7 +585,7 @@ def callback():
 def handle_follow(event):
     """Handle when user follows the bot"""
     welcome_message = TextMessage(
-        text="🎉 ยินดีต้อนรับครับ!\n\nขอบคุณที่ติดตามระบบแจ้งเตือนกิจกรรมของเรา\n\nคุณสามารถใช้เมนูด้านล่างเพื่อดูกิจกรรมต่างๆ หรือสมัครรับการแจ้งเตือนได้เลยครับ",
+        text="🚀 **ยินดีต้อนรับ!**\n\nขอบคุณที่เป็นส่วนหนึ่งของเรา! 🎉\n\n✨ **เราจะช่วยคุณ:**\n🎯 ไม่พลาดกิจกรรมสำคัญ\n📞 จัดการเบอร์โทรอัจฉริยะ\n📢 รับแจ้งเตือนอัตโนมัติ\n\n🚀 **เริ่มต้นใช้งานกันเลย!**",
         quick_reply=create_main_quick_reply()
     )
     safe_line_api_call(line_bot_api.reply_message,
@@ -599,12 +597,13 @@ def handle_message(event):
     text = event.message.text
     if text == "สวัสดี":
         message = TextMessage(
-            text="สวัสดีครับ! ยินดีต้อนรับ 🎉\n\n📅 **ระบบแจ้งเตือนกิจกรรม**\n📞 **สมุดเบอร์โทร**\n\nเลือกได้จากปุ่มด้านล่าง 👇",
+            text="👋 **สวัสดีครับ!**\n\n🤖 **LINE Bot ครบเครื่อง**\n📅 ระบบจัดการกิจกรรม\n📞 สมุดเบอร์โทรอัจฉริยะ\n\n💡 **ใช้งานง่าย เพียงกดปุ่มด้านล่าง**",
             quick_reply=create_main_quick_reply()
         )
         safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(reply_token=event.reply_token, messages=[message])
         )
+        return
     elif text.startswith("ล่าสุด"):
         try:
             # Parse page number if provided
@@ -813,6 +812,7 @@ def handle_message(event):
                     messages=[TextMessage(text=error_msg, quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     elif text == "/today":
         try:
             today = date.today()
@@ -958,22 +958,18 @@ def handle_message(event):
             )
         return
     elif text == "/admin" and event.source.user_id in admin_ids:
-        admin_help_text = """🔧 เมนู Admin - ระบบครบครัน!
+        admin_help_text = """👨‍💼 **Admin Panel**
 
-📅 **จัดการกิจกรรม:**
-• เพิ่มกิจกรรม = กดปุ่ม "เพิ่มกิจกรรม"  
-• จัดการกิจกรรม = กดปุ่ม "จัดการกิจกรรม"
-• ส่งแจ้งเตือน = กดปุ่ม "ส่งแจ้งเตือน"
+📅 **กิจกรรม**
+• เพิ่มกิจกรรม 
+• จัดการกิจกรรม
+• ส่งแจ้งเตือน
 
-📞 **จัดการเบอร์โทร:**
-• /contacts - ดูคำสั่งเบอร์ทั้งหมด
-• /add ชื่อ เบอร์ - เพิ่มเบอร์ใหม่
-• /list - ดูเบอร์ทั้งหมด
-• /export - ส่งออกไฟล์ Excel
+📞 **เบอร์โทร**  
+• เบอร์ทั้งหมด
+• วิธีใช้เบอร์
 
-💡 **คำสั่งเดิม:**
-• /add ชื่อ | รายละเอียด | 2025-01-20 (กิจกรรม)
-• /edit, /delete, /notify"""
+⚡ **ใช้ปุ่มด้านล่างเลย**"""
         
         safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
@@ -1054,6 +1050,7 @@ def handle_message(event):
                     messages=[TextMessage(text=f"เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ\n\nError: {str(e)[:100]}", quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     # เพิ่มการจัดการสำหรับ Non-Admin users ที่กดปุ่ม "จัดการกิจกรรม"
     elif text == "จัดการกิจกรรม":
         safe_line_api_call(line_bot_api.reply_message,
@@ -1062,6 +1059,7 @@ def handle_message(event):
                 messages=[TextMessage(text="❌ คุณไม่มีสิทธิ์ในการจัดการกิจกรรม\n\nเฉพาะ Admin เท่านั้นที่สามารถใช้ฟีเจอร์นี้ได้", quick_reply=create_main_quick_reply())]
             )
         )
+        return
     elif text == "ส่งแจ้งเตือน" and event.source.user_id in admin_ids:
         # Start guided notification sending
         try:
@@ -1115,6 +1113,7 @@ def handle_message(event):
                     messages=[TextMessage(text=f"เกิดข้อผิดพลาดในการเตรียมเมนูแจ้งเตือน\n\nError: {str(e)}", quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     elif text == "/list" and event.source.user_id in admin_ids:
         try:
             response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
@@ -1155,6 +1154,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ")]
                 )
             )
+            return
     elif text.startswith("/edit ") and event.source.user_id in admin_ids:
         # Expected format: /edit [ID] | [title] | [description] | [date]
         parts = text[len("/edit "):].split(' | ', 3)
@@ -1221,6 +1221,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการแก้ไขกิจกรรมครับ")]
                 )
             )
+            return
     elif text.startswith("/delete ") and event.source.user_id in admin_ids:
         # Expected format: /delete [ID]
         try:
@@ -1272,6 +1273,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ")]
                 )
             )
+            return
     elif text.startswith("แก้ไข ") and event.source.user_id in admin_ids:
         # Handle "แก้ไข ID" from Flex Message button
         try:
@@ -1335,6 +1337,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     elif text.startswith("ลบ ") and event.source.user_id in admin_ids:
         # Handle "ลบ ID" from Flex Message button
         try:
@@ -1384,6 +1387,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     elif text.startswith("ยืนยันลบ ") and event.source.user_id in admin_ids:
         # Handle "ยืนยันลบ ID" from quick reply button - actually delete the event
         try:
@@ -1435,6 +1439,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
                 )
             )
+            return
     else:
         user_id = event.source.user_id
         
@@ -2790,27 +2795,12 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # Handle help command in Thai
     elif text.lower() in ["วิธีใช้เบอร์", "ช่วยเหลือเบอร์", "help เบอร์"]:
-        help_text = """📞 วิธีใช้งานสมุดเบอร์โทร
+        help_text = """📞 **คู่มือใช้งาน**
 
-🎯 **วิธีง่ายๆ ที่เข้าใจได้:**
+**เพิ่มเบอร์:** เพิ่มเบอร์ ชื่อ 081-234-5678  
+**ค้นหา:** หาเบอร์ ชื่อหรือเบอร์
 
-📝 **เพิ่มเบอร์:**
-• เพิ่มเบอร์ สมชาย 081-234-5678
-• บันทึกเบอร์ นางสาวดาว 089-999-8888
-• add_phone คุณแม่ 02-123-4567
-
-🔍 **หาเบอร์:**
-• หาเบอร์ สมชาย
-• ค้นหา 081
-• search_phone ดาว
-
-💡 **เทคนิค:**
-• พิมพ์แค่บางส่วนก็ได้
-• ค้นหาได้หลายคำพร้อมกัน
-• ใช้ได้ทั้งภาษาไทยและอังกฤษ
-
-🎮 **กดปุ่มด่วน:**
-ใช้ปุ่มด้านล่างได้เลย!"""
+💡 **ง่ายและรวดเร็ว**"""
         
         safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
