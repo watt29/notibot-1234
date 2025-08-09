@@ -555,7 +555,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v2.1-retry"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
