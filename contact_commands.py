@@ -5,7 +5,8 @@ Contact Commands for LINE Bot
 """
 
 from linebot.v3.messaging import (
-    ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer
+    ReplyMessageRequest, TextMessage, FlexMessage, FlexContainer,
+    QuickReply, QuickReplyItem, MessageAction
 )
 from contact_management import (
     add_contact, search_contacts_multi_keyword, edit_contact, 
@@ -13,6 +14,28 @@ from contact_management import (
     create_contact_flex_message
 )
 from datetime import datetime
+
+def create_contact_quick_reply():
+    """Create quick reply for contact management"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="add_phone ")),
+        QuickReplyItem(action=MessageAction(label="🔍 หาเบอร์", text="search_phone ")),
+        QuickReplyItem(action=MessageAction(label="📋 ดูทั้งหมด", text="/list")),
+        QuickReplyItem(action=MessageAction(label="📖 วิธีใช้", text="/contacts")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+    ])
+
+def create_contact_admin_quick_reply():
+    """Create admin quick reply for contact management"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่ม", text="/add ")),
+        QuickReplyItem(action=MessageAction(label="✏️ แก้ไข", text="/edit ")),
+        QuickReplyItem(action=MessageAction(label="🗑️ ลบ", text="/delete ")),
+        QuickReplyItem(action=MessageAction(label="📊 ทั้งหมด", text="/list")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหา", text="/search ")),
+        QuickReplyItem(action=MessageAction(label="📁 Excel", text="/export")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="/admin"))
+    ])
 
 def handle_add_contact_user(text, event, line_bot_api, create_main_quick_reply):
     """Handle regular user add contact command"""
