@@ -276,10 +276,97 @@ def create_cancel_quick_reply():
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
     ])
 
+def send_automatic_notifications():
+    """Send automatic notifications for events happening today or tomorrow"""
+    try:
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        
+        # Get events for today and tomorrow
+        events_today = supabase_client.table('events').select('*').eq('event_date', str(today)).execute()
+        events_tomorrow = supabase_client.table('events').select('*').eq('event_date', str(tomorrow)).execute()
+        
+        # Get all subscribers
+        subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
+        if not subscribers_response.data:
+            return {"status": "no_subscribers", "message": "No subscribers found"}
+        
+        notifications_sent = 0
+        
+        # Send notifications for today's events
+        if events_today.data:
+            for event in events_today.data:
+                formatted_date = format_thai_date(event.get('event_date', ''))
+                message = f"""🔔 เตือนกิจกรรมวันนี้!
+
+📝 **{event.get('event_title', '')}**
+📋 {event.get('event_description', '')}
+📅 **วันที่:** {formatted_date} (วันนี้)
+
+⏰ อย่าลืมเข้าร่วมนะครับ!
+
+📲 แจ้งเตือนอัตโนมัติ"""
+                
+                for subscriber in subscribers_response.data:
+                    try:
+                        line_bot_api.push_message(
+                            PushMessageRequest(
+                                to=subscriber['user_id'],
+                                messages=[TextMessage(text=message)]
+                            )
+                        )
+                        notifications_sent += 1
+                    except Exception as e:
+                        app.logger.error(f"Failed to send today notification to {subscriber['user_id']}: {e}")
+        
+        # Send notifications for tomorrow's events
+        if events_tomorrow.data:
+            for event in events_tomorrow.data:
+                formatted_date = format_thai_date(event.get('event_date', ''))
+                message = f"""🔔 เตือนกิจกรรมพรุ่งนี้!
+
+📝 **{event.get('event_title', '')}**
+📋 {event.get('event_description', '')}
+📅 **วันที่:** {formatted_date} (พรุ่งนี้)
+
+⏰ เตรียมตัวไว้นะครับ!
+
+📲 แจ้งเตือนอัตโนมัติ"""
+                
+                for subscriber in subscribers_response.data:
+                    try:
+                        line_bot_api.push_message(
+                            PushMessageRequest(
+                                to=subscriber['user_id'],
+                                messages=[TextMessage(text=message)]
+                            )
+                        )
+                        notifications_sent += 1
+                    except Exception as e:
+                        app.logger.error(f"Failed to send tomorrow notification to {subscriber['user_id']}: {e}")
+        
+        return {
+            "status": "success", 
+            "notifications_sent": notifications_sent,
+            "events_today": len(events_today.data) if events_today.data else 0,
+            "events_tomorrow": len(events_tomorrow.data) if events_tomorrow.data else 0,
+            "subscribers": len(subscribers_response.data)
+        }
+        
+    except Exception as e:
+        app.logger.error(f"Error in automatic notifications: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
     return {"status": "ok", "service": "LINE Bot Event Notification System"}, 200
+
+@app.route("/send-notifications", methods=['GET', 'POST'])
+def trigger_notifications():
+    """Endpoint to trigger automatic notifications - can be called by scheduler"""
+    result = send_automatic_notifications()
+    return result, 200
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -847,6 +934,7 @@ def handle_message(event):
             notify_menu = QuickReply(items=[
                 QuickReplyItem(action=MessageAction(label="📝 ข้อความกำหนดเอง", text="ข้อความกำหนดเอง")),
                 QuickReplyItem(action=MessageAction(label="📅 แจ้งกิจกรรมถัดไป", text="แจ้งกิจกรรมถัดไป")),
+                QuickReplyItem(action=MessageAction(label="🤖 ทดสอบแจ้งเตือนอัตโนมัติ", text="ทดสอบแจ้งเตือนอัตโนมัติ")),
                 QuickReplyItem(action=MessageAction(label="📊 ดูสถิติผู้สมัคร", text="ดูสถิติผู้สมัคร")),
                 QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
             ])
@@ -860,6 +948,7 @@ def handle_message(event):
 
 • **ข้อความกำหนดเอง** - พิมพ์ข้อความเอง
 • **แจ้งกิจกรรมถัดไป** - แจ้งกิจกรรมที่กำลังจะมาถึง
+• **🤖 ทดสอบแจ้งเตือนอัตโนมัติ** - ทดสอบระบบแจ้งเตือนวันนี้/พรุ่งนี้
 • **ดูสถิติผู้สมัคร** - ดูข้อมูลผู้สมัครรับแจ้งเตือน
 
 เลือกปุ่มด้านล่างเพื่อเริ่มส่งแจ้งเตือน"""
@@ -1582,6 +1671,61 @@ def handle_message(event):
                             )
                         )
                         del user_states[user_id]
+                        return
+                
+                elif selected_option == "ทดสอบแจ้งเตือนอัตโนมัติ":
+                    # Test automatic notification system
+                    del user_states[user_id]
+                    
+                    try:
+                        result = send_automatic_notifications()
+                        
+                        if result["status"] == "success":
+                            success_message = f"""🤖 ทดสอบแจ้งเตือนอัตโนมัติสำเร็จ!
+
+📊 **ผลการส่ง:**
+✅ ส่งแจ้งเตือนได้: {result['notifications_sent']} ข้อความ
+📅 กิจกรรมวันนี้: {result['events_today']} รายการ
+📅 กิจกรรมพรุ่งนี้: {result['events_tomorrow']} รายการ  
+👥 ผู้สมัครทั้งหมด: {result['subscribers']} คน
+
+💡 **หมายเหตุ:** ระบบจะแจ้งเตือนอัตโนมัติเมื่อ:
+• มีกิจกรรมในวันนี้ (เตือนในตอนเช้า)
+• มีกิจกรรมพรุ่งนี้ (เตือนล่วงหน้า)
+
+🔗 **URL สำหรับ Scheduler:**
+https://notibot-1234.onrender.com/send-notifications"""
+                            
+                        elif result["status"] == "no_subscribers":
+                            success_message = """🤖 ทดสอบแจ้งเตือนอัตโนมัติ
+
+❌ **ไม่มีผู้สมัครรับแจ้งเตือน**
+
+💡 ผู้ใช้สามารถสมัครได้โดยกดปุ่ม "🔔 สมัครแจ้งเตือน" ในเมนูหลัก"""
+                            
+                        else:
+                            success_message = f"""🤖 ทดสอบแจ้งเตือนอัตโนมัติ
+
+❌ **เกิดข้อผิดพลาด:** {result.get('message', 'Unknown error')}
+
+กรุณาตรวจสอบ logs สำหรับรายละเอียดเพิ่มเติม"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                        return
+                        
+                    except Exception as e:
+                        app.logger.error(f"Error testing automatic notifications: {e}")
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการทดสอบระบบแจ้งเตือนอัตโนมัติ", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
                         return
                 
                 elif selected_option == "ดูสถิติผู้สมัคร":

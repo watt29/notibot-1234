@@ -1,0 +1,29 @@
+name: Daily Event Notifications
+
+on:
+  schedule:
+    # Run twice daily: 8:00 AM and 6:00 PM Thai time (UTC+7)
+    # 8:00 AM Thai = 1:00 AM UTC
+    # 6:00 PM Thai = 11:00 AM UTC
+    - cron: '0 1 * * *'   # 8:00 AM Thai time
+    - cron: '0 11 * * *'  # 6:00 PM Thai time
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  send-notifications:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Automatic Notifications
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://notibot-1234.onrender.com/send-notifications)
+          if [ $response -eq 200 ]; then
+            echo "✅ Notifications sent successfully"
+          else
+            echo "❌ Failed to send notifications (HTTP $response)"
+            exit 1
+          fi
+
+      - name: Health Check
+        run: |
+          curl -f https://notibot-1234.onrender.com/ || exit 1
+          echo "✅ Bot is healthy"
