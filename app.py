@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# FORCE DEPLOY: 2025-08-09 - Deploy retry mechanism fix
+# FORCE DEPLOY: 2025-08-09 - Emergency SyntaxError fix elif→if line 2692
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError

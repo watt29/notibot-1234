@@ -114,5 +114,63 @@ curl https://notibot-1234.onrender.com/
 - 🤖 **Claude จะ commit & push อัตโนมัติ** ทุกครั้งที่แก้ไข
 - 🚀 **Render Auto-Deploy:** เชื่อมต่อแล้ว
 
+### 📋 ไฟล์สำคัญสำหรับ Debug/แก้ปัญหา
+
+#### 🔍 ไฟล์ที่ต้องดูเมื่อเริ่มงานใหม่:
+1. **`CLAUDE.md`** - สถานะโปรเจคปัจจุบัน, งานที่ทำล่าสุด
+2. **`backup-scheduler.md`** - ประวัติปัญหาทั้งหมดและวิธีแก้ไข (7 ปัญหาหลัก) 
+3. **`PROJECT_STATUS.md`** - สถานะรายละเอียดทุกระบบ
+4. **`README.md`** - คู่มือใช้งานและ Deploy
+5. **`.render-new-service`** - Config service ใหม่ (ถ้าต้อง deploy ใหม่)
+6. **`NEW_SERVICE_CONFIG.md`** - วิธี setup Render service ใหม่
+
+#### 🚨 ไฟล์ Emergency (เมื่อมีปัญหา):
+- **`app.py`** - Main application (ดู error logs)
+- **`contact_management.py`** - ระบบจัดการเบอร์
+- **`requirements.txt`** - Dependencies  
+- **`.github/workflows/daily-notifications.yml`** - Scheduler
+- **`.deploy-trigger-*`** - Force deploy files
+
+#### 📊 การตรวจสอบสถานะ:
+```bash
+# ตรวจสอบ Git status
+git status
+git log --oneline -10
+
+# ตรวจสอบ Bot online
+curl https://notibot-1234.onrender.com/
+
+# ตรวจสอบ Render service
+curl https://notibot-1234-v2.onrender.com/ 
+
+# ดู logs ผ่าน Render Dashboard
+# https://dashboard.render.com/web/srv-xxx
+```
+
+#### 🔧 คำสั่งแก้ปัญหาฉุกเฉิน:
+```bash
+# Emergency hotfix
+git add . && git commit -m "🚨 HOTFIX: [description]" && git push
+
+# Force rebuild (ถ้าติด cache)  
+# ใช้ .render-new-service config
+# หรือ manual deploy ที่ Render Dashboard
+
+# Test locally ก่อน deploy
+python app.py
+```
+
+#### ⚠️ ปัญหาที่เจอบ่อย:
+1. **SyntaxError** - ดู app.py:2692 area
+2. **ImportError** - ตรวจ line-bot-sdk version
+3. **Supabase Query Error** - ดู contact_management.py
+4. **Quick Reply ไม่ทำงาน** - ตรวจ import statements
+5. **Multi-word names** - ตรวจ string parsing logic
+
+#### 🏥 Emergency Contacts:
+- **User:** watt29 (Admin ID: Uc88eb3896b0e4bcc5fbaa9b78ac1294e)
+- **GitHub:** https://github.com/watt29/notibot-1234
+- **Render Dashboard:** ดู service notibot-1234 หรือ notibot-1234-v2
+
 ---
-📝 อัพเดทล่าสุด: 2025-08-09 14:55 - แก้บัค ApiException ImportError และ Multi-word Contact Names สมบูรณ์
+📝 อัพเดทล่าสุด: 2025-08-09 15:55 - แก้ SyntaxError Emergency Hotfix (v3.3 - สมบูรณ์แล้ว)
