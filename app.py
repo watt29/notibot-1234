@@ -552,7 +552,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.2-search-fix"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.3-list-all-fix"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -2777,7 +2777,30 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # ==================== CONTACT MANAGEMENT COMMANDS ====================
     
-    # Check for Thai natural language first
+    # Handle show all contacts in Thai FIRST (before conversion)
+    if text.lower() in ["เบอร์ทั้งหมด", "ทั้งหมด", "ดูทั้งหมด", "รายการทั้งหมด"]:
+        contacts = get_all_contacts()
+        if not contacts:
+            msg = "📭 ยังไม่มีเบอร์โทรในสมุด\n\n💡 เริ่มเพิ่มเบอร์แรกกันเลย!"
+            quick_reply = create_contact_quick_reply()
+        else:
+            msg = f"📋 สมุดเบอร์โทร ({len(contacts)} คน)\n\n"
+            for i, contact in enumerate(contacts[:20], 1):
+                msg += f"{i}. {contact['name']} - {contact['phone_number']}\n"
+            if len(contacts) > 20:
+                msg += f"\n... และอีก {len(contacts) - 20} คน"
+            msg += "\n\n💡 ลองค้นหาคนที่ต้องการดู"
+            quick_reply = create_contact_quick_reply()
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=msg, quick_reply=quick_reply)]
+            )
+        )
+        return
+    
+    # Check for Thai natural language conversion
     converted_command = convert_thai_to_english_command(text)
     
     # Check for incomplete commands and provide help
@@ -2815,28 +2838,6 @@ https://notibot-1234.onrender.com/send-notifications"""
     elif converted_command.startswith("search_phone "):
         query = converted_command.replace("search_phone ", "")
         handle_search_contact_simple(query, event)
-    
-    # Handle show all contacts in Thai
-    elif text.lower() in ["เบอร์ทั้งหมด", "ทั้งหมด", "ดูทั้งหมด", "รายการทั้งหมด"]:
-        contacts = get_all_contacts()
-        if not contacts:
-            msg = "📭 ยังไม่มีเบอร์โทรในสมุด\n\n💡 เริ่มเพิ่มเบอร์แรกกันเลย!"
-            quick_reply = create_contact_quick_reply()
-        else:
-            msg = f"📋 สมุดเบอร์โทร ({len(contacts)} คน)\n\n"
-            for i, contact in enumerate(contacts[:20], 1):
-                msg += f"{i}. {contact['name']} - {contact['phone_number']}\n"
-            if len(contacts) > 20:
-                msg += f"\n... และอีก {len(contacts) - 20} คน"
-            msg += "\n\n💡 ลองค้นหาคนที่ต้องการดู"
-            quick_reply = create_contact_quick_reply()
-        
-        safe_line_api_call(line_bot_api.reply_message,
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=msg, quick_reply=quick_reply)]
-            )
-        )
     
     # Handle help command in Thai
     elif text.lower() in ["วิธีใช้เบอร์", "ช่วยเหลือเบอร์", "help เบอร์"]:
