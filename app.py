@@ -12,6 +12,7 @@ from datetime import datetime, date, timedelta
 import os
 from supabase import create_client, Client
 import re
+import time
 from dotenv import load_dotenv
 import tempfile
 
@@ -95,7 +96,7 @@ def handle_add_contact_simple(data, event, user_id):
             QuickReplyItem(action=MessageAction(label="💡 เพิ่มเบอร์ ดาว 089-999-8888", text="เพิ่มเบอร์ ดาว 089-999-8888"))
         ])
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=error_msg, quick_reply=quick_reply)]
@@ -116,7 +117,7 @@ def handle_add_contact_simple(data, event, user_id):
         success_msg = f"❌ {result['error']}\n\n💡 ลองตรวจสอบเบอร์โทรให้ถูกต้อง"
         quick_reply = create_contact_quick_reply()
     
-    line_bot_api.reply_message(
+    safe_line_api_call(line_bot_api.reply_message,
         ReplyMessageRequest(
             reply_token=event.reply_token,
             messages=[TextMessage(text=success_msg, quick_reply=quick_reply)]
@@ -131,7 +132,7 @@ def handle_search_contact_simple(query, event):
         error_msg = "❌ ไม่พบข้อมูลที่ตรงกับคำค้นหา\n\n💡 ลองใช้คำค้นหาอื่น เช่น บางส่วนของชื่อ หรือเลขเบอร์"
         quick_reply = create_contact_quick_reply()
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=error_msg, quick_reply=quick_reply)]
@@ -148,7 +149,7 @@ def handle_search_contact_simple(query, event):
         success_msg = f"🎯 พบแล้ว! ({len(contacts)} คน)"
         quick_reply = create_contact_quick_reply()
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[flex_message, TextMessage(text=success_msg, quick_reply=quick_reply)]
@@ -163,7 +164,7 @@ def handle_search_contact_simple(query, event):
         success_msg = f"🎯 พบ {len(contacts)} คน{' (แสดง 10 คนแรก)' if len(contacts) > 10 else ''}"
         quick_reply = create_contact_quick_reply()
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[flex_message, TextMessage(text=success_msg, quick_reply=quick_reply)]
@@ -171,6 +172,32 @@ def handle_search_contact_simple(query, event):
         )
 
 app = Flask(__name__)
+
+def safe_line_api_call(api_method, *args, max_retries=3, **kwargs):
+    """Safely call LINE Bot API with retry logic for connection issues"""
+    from urllib3.exceptions import ProtocolError
+    from linebot.v3.exceptions import ApiException
+    
+    for attempt in range(max_retries):
+        try:
+            return api_method(*args, **kwargs)
+        except (ProtocolError, ConnectionResetError, ConnectionAbortedError) as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                app.logger.warning(f"LINE API connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            else:
+                app.logger.error(f"LINE API failed after {max_retries} attempts: {e}")
+                raise e
+        except ApiException as e:
+            # Don't retry API errors (bad requests, invalid tokens, etc.)
+            app.logger.error(f"LINE API error: {e}")
+            raise e
+        except Exception as e:
+            # Log other unexpected errors but don't retry
+            app.logger.error(f"Unexpected LINE API error: {e}")
+            raise e
 
 # Supabase setup
 supabase_url = os.getenv('SUPABASE_URL')
@@ -477,7 +504,7 @@ def send_automatic_notifications():
                 
                 for subscriber in subscribers_response.data:
                     try:
-                        line_bot_api.push_message(
+                        safe_line_api_call(line_bot_api.push_message,
                             PushMessageRequest(
                                 to=subscriber['user_id'],
                                 messages=[TextMessage(text=message)]
@@ -503,7 +530,7 @@ def send_automatic_notifications():
                 
                 for subscriber in subscribers_response.data:
                     try:
-                        line_bot_api.push_message(
+                        safe_line_api_call(line_bot_api.push_message,
                             PushMessageRequest(
                                 to=subscriber['user_id'],
                                 messages=[TextMessage(text=message)]
@@ -556,7 +583,7 @@ def handle_follow(event):
         text="🎉 ยินดีต้อนรับครับ!\n\nขอบคุณที่ติดตามระบบแจ้งเตือนกิจกรรมของเรา\n\nคุณสามารถใช้เมนูด้านล่างเพื่อดูกิจกรรมต่างๆ หรือสมัครรับการแจ้งเตือนได้เลยครับ",
         quick_reply=create_main_quick_reply()
     )
-    line_bot_api.reply_message(
+    safe_line_api_call(line_bot_api.reply_message,
         ReplyMessageRequest(reply_token=event.reply_token, messages=[welcome_message])
     )
 
@@ -568,7 +595,7 @@ def handle_message(event):
             text="สวัสดีครับ! ยินดีต้อนรับ 🎉\n\n📅 **ระบบแจ้งเตือนกิจกรรม**\n• ดูกิจกรรมต่างๆ\n• ค้นหากิจกรรม\n\n📞 **สมุดเบอร์โทร**\n• เพิ่มเบอร์ ชื่อ เบอร์\n• หาเบอร์ ชื่อ\n• เบอร์ทั้งหมด\n\nเลือกได้จากเมนูด้านล่าง 👇",
             quick_reply=create_main_quick_reply()
         )
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(reply_token=event.reply_token, messages=[message])
         )
     elif text.startswith("ล่าสุด"):
@@ -590,7 +617,7 @@ def handle_message(event):
                     flex_message = create_events_carousel_message(events, is_admin, page)
                     pagination_reply = create_pagination_quick_reply(page, total_pages, "ล่าสุด")
                     status_text = f"📄 หน้า {page}/{total_pages} (ทั้งหมด {total_events} กิจกรรม)"
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
@@ -598,14 +625,14 @@ def handle_message(event):
                     )
                 else:
                     flex_message = create_events_carousel_message(events, is_admin)
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[flex_message, TextMessage(text="เลือกดูกิจกรรมอื่นๆ ได้เลยครับ", quick_reply=create_main_quick_reply())]
                         )
                     )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="ยังไม่มีกิจกรรมที่บันทึกไว้ค่ะ", quick_reply=create_main_quick_reply())]
@@ -613,7 +640,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error fetching events from Supabase: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูลกิจกรรมค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_main_quick_reply())]
@@ -625,7 +652,7 @@ def handle_message(event):
             # Check if user is already subscribed
             response = supabase_client.table('subscribers').select('user_id').eq('user_id', user_id).execute()
             if response.data:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="คุณได้สมัครรับการแจ้งเตือนอยู่แล้วค่ะ", quick_reply=create_main_quick_reply())]
@@ -634,7 +661,7 @@ def handle_message(event):
             else:
                 # Add user to subscribers table
                 supabase_client.table('subscribers').insert({'user_id': user_id}).execute()
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="✅ คุณได้สมัครรับการแจ้งเตือนกิจกรรมเรียบร้อยแล้วค่ะ", quick_reply=create_main_quick_reply())]
@@ -642,7 +669,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error subscribing user: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการสมัครรับการแจ้งเตือนค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_main_quick_reply())]
@@ -651,7 +678,7 @@ def handle_message(event):
     elif text.startswith("/add "):
         user_id = event.source.user_id
         if user_id not in admin_ids:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="คุณไม่มีสิทธิ์ในการเพิ่มกิจกรรมค่ะ")]
@@ -716,7 +743,7 @@ def handle_message(event):
 หรือกด "เพิ่มกิจกรรม" แล้วพิมพ์:
 บัตรตำรวจ | ผกก.อยู่ที่กระเป๋าปืน | 2025-08-08"""
             
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=help_text, quick_reply=create_admin_quick_reply())]
@@ -731,7 +758,7 @@ def handle_message(event):
         try:
             event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องค่ะ กรุณาใช้ YYYY-MM-DD", quick_reply=create_admin_quick_reply())]
@@ -755,7 +782,7 @@ def handle_message(event):
             if response.data and len(response.data) > 0:
                 event_id = response.data[0]['id']
                 success_text = f"✅ เพิ่มกิจกรรมสำเร็จ!\n\n📝 {event_title}\n📋 {event_description}\n📅 {format_thai_date(str(event_date))}\n🆔 ID: {event_id}"
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
@@ -771,7 +798,7 @@ def handle_message(event):
             
             # Return more specific error message
             error_msg = f"เกิดข้อผิดพลาด: {str(e)[:100]}\nTitle: {event_title}\nDescription: {event_description}\nDate: {event_date}"
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=error_msg, quick_reply=create_admin_quick_reply())]
@@ -790,14 +817,14 @@ def handle_message(event):
                 else:
                     flex_message = create_events_carousel_message(events, is_admin)
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[flex_message, TextMessage(text="เลือกดูกิจกรรมอื่นๆ ได้เลยครับ", quick_reply=create_main_quick_reply())]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(
@@ -808,7 +835,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error fetching today's events: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(
@@ -830,14 +857,14 @@ def handle_message(event):
                 else:
                     flex_message = create_events_carousel_message(events, is_admin)
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[flex_message, TextMessage(text="เลือกดูกิจกรรมอื่นๆ ได้เลยครับ", quick_reply=create_main_quick_reply())]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(
@@ -848,7 +875,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error fetching upcoming events: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(
@@ -881,7 +908,7 @@ def handle_message(event):
                     total_pages = (total_events + 9) // 10
                     pagination_reply = create_pagination_quick_reply(1, total_pages, "/month")
                     status_text = f"🗓️ เดือน {today.month}/{today.year} - หน้า 1/{total_pages} (ทั้งหมด {total_events} กิจกรรม)"
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
@@ -891,14 +918,14 @@ def handle_message(event):
                 else:
                     flex_message = create_events_carousel_message(events, is_admin)
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[flex_message, TextMessage(text=f"🗓️ กิจกรรมเดือน {today.month}/{today.year} ทั้งหมด {total_events} รายการ", quick_reply=create_main_quick_reply())]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(
@@ -909,7 +936,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error fetching monthly events: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(
@@ -938,7 +965,7 @@ def handle_message(event):
 
 เลือกปุ่มด้านล่างเพื่อเริ่มค้นหา"""
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=search_help, quick_reply=search_menu)]
@@ -968,7 +995,7 @@ def handle_message(event):
                     total_pages = (total_events + 9) // 10
                     pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
                     status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
@@ -978,14 +1005,14 @@ def handle_message(event):
                 else:
                     flex_message = create_events_carousel_message(events, is_admin)
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(
@@ -996,7 +1023,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error searching events: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(
@@ -1023,7 +1050,7 @@ def handle_message(event):
 • /add ชื่อ | รายละเอียด | 2025-01-20 (กิจกรรม)
 • /edit, /delete, /notify"""
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=admin_help_text, quick_reply=create_admin_quick_reply())]
@@ -1044,7 +1071,7 @@ def handle_message(event):
 
 💬 แค่พิมพ์ชื่อกิจกรรมแล้วส่งมา"""
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -1076,7 +1103,7 @@ def handle_message(event):
                 if len(events) > 10:
                     status_text += f"\n\n📄 แสดง 10 จาก {len(events)} กิจกรรม\nใช้คำสั่ง /list เพื่อดูทั้งหมด"
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[
@@ -1086,7 +1113,7 @@ def handle_message(event):
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ\n\nกดปุ่ม '📝 เพิ่มกิจกรรม' เพื่อเริ่มต้น", quick_reply=create_admin_quick_reply())]
@@ -1094,7 +1121,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error listing events for management: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=f"เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ\n\nError: {str(e)[:100]}", quick_reply=create_admin_quick_reply())]
@@ -1102,7 +1129,7 @@ def handle_message(event):
             )
     # เพิ่มการจัดการสำหรับ Non-Admin users ที่กดปุ่ม "จัดการกิจกรรม"
     elif text == "จัดการกิจกรรม":
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text="❌ คุณไม่มีสิทธิ์ในการจัดการกิจกรรม\n\nเฉพาะ Admin เท่านั้นที่สามารถใช้ฟีเจอร์นี้ได้", quick_reply=create_main_quick_reply())]
@@ -1145,7 +1172,7 @@ def handle_message(event):
 
 เลือกปุ่มด้านล่างเพื่อเริ่มส่งแจ้งเตือน"""
             
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=guide_text, quick_reply=notify_menu)]
@@ -1153,7 +1180,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error preparing notification menu: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการเตรียมเมนูแจ้งเตือน", quick_reply=create_admin_quick_reply())]
@@ -1178,14 +1205,14 @@ def handle_message(event):
                 if len(event_list) > 2000:
                     event_list = event_list[:1900] + "...\n\nใช้ /admin เพื่อดูคำสั่งจัดการ"
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=event_list)]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ")]
@@ -1193,7 +1220,7 @@ def handle_message(event):
                 )
         except Exception as e:
             app.logger.error(f"Error listing events: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ")]
@@ -1203,7 +1230,7 @@ def handle_message(event):
         # Expected format: /edit [ID] | [title] | [description] | [date]
         parts = text[len("/edit "):].split(' | ', 3)
         if len(parts) != 4:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="รูปแบบคำสั่งไม่ถูกต้องครับ\nใช้: /edit [ID] | ชื่อใหม่ | รายละเอียดใหม่ | YYYY-MM-DD")]
@@ -1221,7 +1248,7 @@ def handle_message(event):
             try:
                 new_date = datetime.strptime(new_date_str, '%Y-%m-%d').date()
             except ValueError:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องครับ กรุณาใช้ YYYY-MM-DD")]
@@ -1237,21 +1264,21 @@ def handle_message(event):
             }).eq('id', event_id).execute()
             
             if response.data and len(response.data) > 0:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"✅ แก้ไขกิจกรรม ID: {event_id} เรียบร้อยแล้วครับ")]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id} หรือไม่สามารถแก้ไขได้")]
                     )
                 )
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ")]
@@ -1259,7 +1286,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error editing event: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการแก้ไขกิจกรรมครับ")]
@@ -1281,28 +1308,28 @@ def handle_message(event):
                 delete_response = supabase_client.table('events').delete().eq('id', event_id).execute()
                 
                 if delete_response.data:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=f"🗑️ ลบกิจกรรมเรียบร้อยแล้วครับ\n\n📝 {event_data.get('event_title', '')}\n🆔 ID: {event_id}")]
                         )
                     )
                 else:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=f"❌ ไม่สามารถลบกิจกรรม ID: {event_id} ได้")]
                         )
                     )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}")]
                     )
                 )
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ")]
@@ -1310,7 +1337,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error deleting event: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ")]
@@ -1351,21 +1378,21 @@ def handle_message(event):
 
 🔸 **เลือกส่วนที่ต้องการแก้ไข:**"""
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=guide_text, quick_reply=edit_menu)]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
                     )
                 )
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
@@ -1373,7 +1400,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error handling edit request: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
@@ -1400,21 +1427,21 @@ def handle_message(event):
 
 กดปุ่ม "✅ ยืนยันลบ" เพื่อลบ หรือ "❌ ยกเลิก" """
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=confirm_text, quick_reply=create_delete_confirm_quick_reply(event_id))]
                     )
                 )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
                     )
                 )
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
@@ -1422,7 +1449,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error handling delete request: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดครับ", quick_reply=create_admin_quick_reply())]
@@ -1444,28 +1471,28 @@ def handle_message(event):
                 
                 if delete_response.data:
                     success_text = f"🗑️ ลบกิจกรรมเรียบร้อยแล้วครับ!\n\n📝 {event_data.get('event_title', '')}\n🆔 ID: {event_id}\n\n✅ การลบสำเร็จ"
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                         )
                     )
                 else:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=f"❌ ไม่สามารถลบกิจกรรม ID: {event_id} ได้", quick_reply=create_admin_quick_reply())]
                         )
                     )
             else:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=f"❌ ไม่พบกิจกรรม ID: {event_id}", quick_reply=create_admin_quick_reply())]
                     )
                 )
         except ValueError:
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="ID ต้องเป็นตัวเลขเท่านั้นครับ", quick_reply=create_admin_quick_reply())]
@@ -1473,7 +1500,7 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error confirming delete: {e}")
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการลบกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
@@ -1506,7 +1533,7 @@ def handle_message(event):
 
 💬 พิมพ์คำค้นแล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -1524,7 +1551,7 @@ def handle_message(event):
 
 กดปุ่มด้านล่างเพื่อเลือกวันที่ หรือกด "📅 วันอื่น" แล้วพิมพ์ YYYY-MM-DD"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
@@ -1547,7 +1574,7 @@ def handle_message(event):
 
 ระบบจะค้นหาในทุกส่วน (ชื่อ, รายละเอียด, วันที่)"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -1577,7 +1604,7 @@ def handle_message(event):
                             total_pages = (total_events + 9) // 10
                             pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
                             status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
-                            line_bot_api.reply_message(
+                            safe_line_api_call(line_bot_api.reply_message,
                                 ReplyMessageRequest(
                                     reply_token=event.reply_token,
                                     messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
@@ -1587,14 +1614,14 @@ def handle_message(event):
                         else:
                             flex_message = create_events_carousel_message(events, is_admin)
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(
@@ -1605,7 +1632,7 @@ def handle_message(event):
                         )
                 except Exception as e:
                     app.logger.error(f"Error in guided text search: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(
@@ -1632,7 +1659,7 @@ def handle_message(event):
 
 💬 พิมพ์วันที่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -1656,7 +1683,7 @@ def handle_message(event):
                         parsed_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
                         actual_date = str(parsed_date)
                     except ValueError:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง\n\nใช้ได้:\n• วันนี้, พรุ่งนี้, เมื่อวาน\n• หรือ YYYY-MM-DD (เช่น 2025-08-15)", quick_reply=create_main_quick_reply())]
@@ -1687,7 +1714,7 @@ def handle_message(event):
                         else:
                             date_display = format_thai_date(actual_date)
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[flex_message, TextMessage(text=f"📅 {date_display} พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
@@ -1704,7 +1731,7 @@ def handle_message(event):
                         else:
                             date_display = format_thai_date(actual_date)
                             
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(
@@ -1715,7 +1742,7 @@ def handle_message(event):
                         )
                 except Exception as e:
                     app.logger.error(f"Error in guided date search: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(
@@ -1760,7 +1787,7 @@ def handle_message(event):
                             total_pages = (total_events + 9) // 10
                             pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
                             status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
-                            line_bot_api.reply_message(
+                            safe_line_api_call(line_bot_api.reply_message,
                                 ReplyMessageRequest(
                                     reply_token=event.reply_token,
                                     messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
@@ -1770,14 +1797,14 @@ def handle_message(event):
                         else:
                             flex_message = create_events_carousel_message(events, is_admin)
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(
@@ -1788,7 +1815,7 @@ def handle_message(event):
                         )
                 except Exception as e:
                     app.logger.error(f"Error in guided free search: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(
@@ -1817,7 +1844,7 @@ def handle_message(event):
 
 💬 พิมพ์ข้อความแล้วส่งมา (จะส่งให้ผู้สมัครทุกคน)"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -1851,7 +1878,7 @@ def handle_message(event):
                                 
                                 for subscriber in subscribers_response.data:
                                     try:
-                                        line_bot_api.push_message(
+                                        safe_line_api_call(line_bot_api.push_message,
                                             PushMessageRequest(
                                                 to=subscriber['user_id'],
                                                 messages=[TextMessage(text=notification_message)]
@@ -1870,21 +1897,21 @@ def handle_message(event):
 
 📊 **รวม:** {sent_count + failed_count} คน"""
                                 
-                                line_bot_api.reply_message(
+                                safe_line_api_call(line_bot_api.reply_message,
                                     ReplyMessageRequest(
                                         reply_token=event.reply_token,
                                         messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
                                     )
                                 )
                             else:
-                                line_bot_api.reply_message(
+                                safe_line_api_call(line_bot_api.reply_message,
                                     ReplyMessageRequest(
                                         reply_token=event.reply_token,
                                         messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
                                     )
                                 )
                         else:
-                            line_bot_api.reply_message(
+                            safe_line_api_call(line_bot_api.reply_message,
                                 ReplyMessageRequest(
                                     reply_token=event.reply_token,
                                     messages=[TextMessage(text="❌ ไม่มีกิจกรรมถัดไปที่จะแจ้งเตือน", quick_reply=create_admin_quick_reply())]
@@ -1896,7 +1923,7 @@ def handle_message(event):
                         
                     except Exception as e:
                         app.logger.error(f"Error sending event notification: {e}")
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งแจ้งเตือน", quick_reply=create_admin_quick_reply())]
@@ -1942,7 +1969,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 กรุณาตรวจสอบ logs สำหรับรายละเอียดเพิ่มเติม"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
@@ -1952,7 +1979,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                         
                     except Exception as e:
                         app.logger.error(f"Error testing automatic notifications: {e}")
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการทดสอบระบบแจ้งเตือนอัตโนมัติ", quick_reply=create_admin_quick_reply())]
@@ -1986,7 +2013,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 • Admin สามารถส่งแจ้งเตือนผ่านเมนูนี้
 • ระบบจะส่งข้อความไปหาผู้สมัครทุกคน"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=stats_text, quick_reply=create_admin_quick_reply())]
@@ -1998,7 +2025,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                         
                     except Exception as e:
                         app.logger.error(f"Error getting subscriber stats: {e}")
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการดึงสถิติ", quick_reply=create_admin_quick_reply())]
@@ -2027,7 +2054,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                         
                         for subscriber in subscribers_response.data:
                             try:
-                                line_bot_api.push_message(
+                                safe_line_api_call(line_bot_api.push_message,
                                     PushMessageRequest(
                                         to=subscriber['user_id'],
                                         messages=[TextMessage(text=notification_text)]
@@ -2046,14 +2073,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 📊 **รวม:** {sent_count + failed_count} คน"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
@@ -2064,7 +2091,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     
                 except Exception as e:
                     app.logger.error(f"Error sending custom notification: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งข้อความ", quick_reply=create_admin_quick_reply())]
@@ -2091,7 +2118,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 แค่พิมพ์รายละเอียดแล้วส่งมา"""
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2113,7 +2140,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 กดปุ่มด้านล่างเพื่อเลือกวันที่ หรือกด "📅 วันอื่น" แล้วพิมพ์ YYYY-MM-DD"""
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
@@ -2137,7 +2164,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 พิมพ์วันที่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2149,7 +2176,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 try:
                     event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
                 except ValueError:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
@@ -2177,14 +2204,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 ✅ บันทึกลงฐานข้อมูลแล้ว"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการบันทึก", quick_reply=create_admin_quick_reply())]
@@ -2197,7 +2224,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     
                 except Exception as e:
                     app.logger.error(f"Error creating event via guided flow: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการบันทึกกิจกรรม", quick_reply=create_admin_quick_reply())]
@@ -2222,7 +2249,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 พิมพ์ชื่อใหม่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2242,7 +2269,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 พิมพ์รายละเอียดใหม่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2264,7 +2291,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 กดปุ่มด้านล่างเพื่อเลือกวันที่ใหม่"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
@@ -2284,7 +2311,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 แค่พิมพ์ชื่อใหม่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2313,14 +2340,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 ✅ อัปเดตในฐานข้อมูลแล้ว"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
@@ -2332,7 +2359,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 
                 except Exception as e:
                     app.logger.error(f"Error editing title only: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขชื่อ", quick_reply=create_admin_quick_reply())]
@@ -2359,14 +2386,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 ✅ อัปเดตในฐานข้อมูลแล้ว"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
@@ -2378,7 +2405,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 
                 except Exception as e:
                     app.logger.error(f"Error editing description only: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขรายละเอียด", quick_reply=create_admin_quick_reply())]
@@ -2403,7 +2430,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 พิมพ์วันที่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2416,7 +2443,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
                     event_date_str = str(event_date)
                 except ValueError:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
@@ -2439,14 +2466,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 ✅ อัปเดตในฐานข้อมูลแล้ว"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
@@ -2458,7 +2485,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 
                 except Exception as e:
                     app.logger.error(f"Error editing date only: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขวันที่", quick_reply=create_admin_quick_reply())]
@@ -2483,7 +2510,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 แค่พิมพ์รายละเอียดใหม่แล้วส่งมา"""
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2514,7 +2541,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 กดปุ่มด้านล่างเพื่อเลือกวันที่"""
                 
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text=guide_text, quick_reply=date_buttons)]
@@ -2539,7 +2566,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 💬 พิมพ์วันที่แล้วส่งมา"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
@@ -2552,7 +2579,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                         event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
                         event_date_str = str(event_date)
                     except ValueError:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
@@ -2578,14 +2605,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 ✅ อัปเดตในฐานข้อมูลแล้ว"""
                         
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                             )
                         )
                     else:
-                        line_bot_api.reply_message(
+                        safe_line_api_call(line_bot_api.reply_message,
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(text="❌ ไม่สามารถแก้ไขกิจกรรมได้", quick_reply=create_admin_quick_reply())]
@@ -2597,7 +2624,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     
                 except Exception as e:
                     app.logger.error(f"Error editing event via guided flow: {e}")
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขกิจกรรม", quick_reply=create_admin_quick_reply())]
@@ -2619,7 +2646,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 cancel_msg = "❌ ยกเลิกการค้นหาแล้ว"
                 quick_reply = create_main_quick_reply()
             
-            line_bot_api.reply_message(
+            safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[TextMessage(text=cancel_msg, quick_reply=quick_reply)]
@@ -2645,7 +2672,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     
                     for subscriber in subscribers_response.data:
                         try:
-                            line_bot_api.push_message(
+                            safe_line_api_call(line_bot_api.push_message,
                                 PushMessageRequest(
                                     to=subscriber['user_id'],
                                     messages=[TextMessage(text=notification_text)]
@@ -2664,14 +2691,14 @@ https://notibot-1234.onrender.com/send-notifications"""
 
 📊 **รวม:** {sent_count + failed_count} คน"""
                     
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=success_message, quick_reply=create_admin_quick_reply())]
                         )
                     )
                 else:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="❌ ไม่มีผู้สมัครรับแจ้งเตือน", quick_reply=create_admin_quick_reply())]
@@ -2679,7 +2706,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     )
             except Exception as e:
                 app.logger.error(f"Error sending notification via command: {e}")
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการส่งข้อความ", quick_reply=create_admin_quick_reply())]
@@ -2697,7 +2724,7 @@ https://notibot-1234.onrender.com/send-notifications"""
             try:
                 event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
             except ValueError:
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="รูปแบบวันที่ไม่ถูกต้องครับ กรุณาใช้ YYYY-MM-DD", quick_reply=create_admin_quick_reply())]
@@ -2716,14 +2743,14 @@ https://notibot-1234.onrender.com/send-notifications"""
                 if response.data and len(response.data) > 0:
                     event_id = response.data[0]['id']
                     success_text = f"✅ เพิ่มกิจกรรมสำเร็จ!\n\n📝 {event_title}\n📋 {event_description}\n📅 {format_thai_date(str(event_date))}\n🆔 ID: {event_id}"
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
                         )
                     )
                 else:
-                    line_bot_api.reply_message(
+                    safe_line_api_call(line_bot_api.reply_message,
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
@@ -2731,7 +2758,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                     )
             except Exception as e:
                 app.logger.error(f"Error adding event via simple format: {e}")
-                line_bot_api.reply_message(
+                safe_line_api_call(line_bot_api.reply_message,
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
                         messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
@@ -2751,7 +2778,7 @@ https://notibot-1234.onrender.com/send-notifications"""
             QuickReplyItem(action=MessageAction(label=f"💡 {suggestion[:20]}", text=suggestion))
             for suggestion in incomplete["suggestions"][:10]
         ])
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=incomplete["message"], quick_reply=quick_reply)]
@@ -2792,7 +2819,7 @@ https://notibot-1234.onrender.com/send-notifications"""
             msg += "\n\n💡 ลองค้นหาคนที่ต้องการดู"
             quick_reply = create_contact_quick_reply()
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=msg, quick_reply=quick_reply)]
@@ -2823,7 +2850,7 @@ https://notibot-1234.onrender.com/send-notifications"""
 🎮 **กดปุ่มด่วน:**
 ใช้ปุ่มด้านล่างได้เลย!"""
         
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=help_text, quick_reply=create_contact_quick_reply())]
@@ -2837,7 +2864,7 @@ https://notibot-1234.onrender.com/send-notifications"""
     # ==================== END CONTACT MANAGEMENT ====================
     
     else:
-        line_bot_api.reply_message(
+        safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(
                 reply_token=event.reply_token,
                 messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ\n\n📞 **คำสั่งเบอร์โทรใหม่:**\n• เพิ่มเบอร์ ชื่อ เบอร์ - เพิ่มเบอร์\n• หาเบอร์ คำค้นหา - หาเบอร์\n• เบอร์ทั้งหมด - ดูทั้งหมด\n• วิธีใช้เบอร์ - วิธีใช้งาน\n\n💡 **คำสั่งเดิม:**\n• add_phone, search_phone ยังใช้ได้", quick_reply=create_main_quick_reply())]
