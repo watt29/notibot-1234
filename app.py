@@ -568,6 +568,13 @@ def create_date_commands_quick_reply():
 def send_automatic_notifications():
     """Send automatic notifications for events happening today or tomorrow"""
     try:
+        # Check if we've hit rate limits recently
+        current_time = datetime.now()
+        last_limit_check = getattr(send_automatic_notifications, '_last_limit_check', None)
+        
+        if last_limit_check and (current_time - last_limit_check).seconds < 3600:  # 1 hour cooldown
+            app.logger.warning("Skipping notifications due to recent rate limit")
+            return "Rate limit cooldown in effect", 429
         today = date.today()
         tomorrow = today + timedelta(days=1)
         
@@ -615,6 +622,11 @@ def send_automatic_notifications():
                         notifications_sent += 1
                     except Exception as e:
                         app.logger.error(f"Failed to send today notification to {subscriber['user_id']}: {e}")
+                        # Check if it's a rate limit error
+                        if "429" in str(e) or "monthly limit" in str(e).lower():
+                            app.logger.error("LINE API rate limit hit - stopping notifications")
+                            send_automatic_notifications._last_limit_check = datetime.now()
+                            return "LINE API monthly limit exceeded", 429
         
         # Send notifications for tomorrow's events
         if events_tomorrow.data:
@@ -641,6 +653,11 @@ def send_automatic_notifications():
                         notifications_sent += 1
                     except Exception as e:
                         app.logger.error(f"Failed to send tomorrow notification to {subscriber['user_id']}: {e}")
+                        # Check if it's a rate limit error
+                        if "429" in str(e) or "monthly limit" in str(e).lower():
+                            app.logger.error("LINE API rate limit hit - stopping notifications")
+                            send_automatic_notifications._last_limit_check = datetime.now()
+                            return "LINE API monthly limit exceeded", 429
         
         return {
             "status": "success", 
