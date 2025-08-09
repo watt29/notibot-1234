@@ -15,21 +15,27 @@
   - Flex Message สวยงาม
 
 ### 🔧 การแก้ไขล่าสุด
-1. **Contact Management System** (วันนี้)
+1. **Fix Circular Import Issue** (commit: 9204ecc)
+   - แก้ urllib3.exceptions.ProtocolError ใน production
+   - ย้าย load_dotenv() ก่อน contact_management import
+   - Inline helper functions เพื่อหลีกเลี่ยง circular imports
+   - ระบบ Contact Management + Event Notification รวมเป็นหนึ่งเดียว
+
+2. **Contact Management System** (เสร็จสมบูรณ์)
    - เพิ่มระบบจัดการเบอร์โทร
    - สร้างตาราง contacts ใน Supabase
    - ฟังก์ชันค้นหาแบบ multi-keyword
    - Validation เบอร์โทรไทย อัตโนมัติ
    - Flex Message สำหรับแสดงผล
    - Admin commands: /add, /edit, /delete, /list, /export, /search
-   - User commands: add_phone, search_phone
+   - User commands: เพิ่มเบอร์, หาเบอร์
 
-2. **Fix Thai Date Keywords** (commit: 33b6f45)
+3. **Fix Thai Date Keywords** (commit: 33b6f45)
    - แก้ search_free_input handler รองรับ "วันนี้", "พรุ่งนี้", "เมื่อวาน"
    - แก้ help text แสดงคีย์เวิร์ดไทย
    - แก้การแสดงผลแบบเป็นมิตร
 
-3. **Expand Date Buttons** (commit: f4b4eb7)
+4. **Expand Date Buttons** (commit: f4b4eb7)
    - เพิ่ม create_date_quick_reply จาก 7 เป็น 11 วัน
    - ใช้ Quick Reply ให้คุ้มค่า (11+2=13 max)
 
@@ -86,4 +92,4 @@ curl https://notibot-1234.onrender.com/
 - 🚀 **Render Auto-Deploy:** เชื่อมต่อแล้ว
 
 ---
-📝 อัพเดทล่าสุด: 2025-08-09 - เพิ่มระบบอำนวยความสะดวกภาษาไทย + Auto GitHub Update
+📝 อัพเดทล่าสุด: 2025-08-09 20:30 - แก้ circular import issue และรวม Contact Management เสร็จสิ้น
