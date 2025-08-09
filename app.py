@@ -475,6 +475,41 @@ def create_cancel_quick_reply():
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
     ])
 
+def create_comprehensive_quick_reply():
+    """Create comprehensive quick reply with all main features"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📅 วันนี้", text="/today")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหา", text="/search")),
+        QuickReplyItem(action=MessageAction(label="📞 เบอร์", text="ค้นหาเบอร์อัจฉริยะ")),
+        QuickReplyItem(action=MessageAction(label="📊 สถิติ", text="สถิติเบอร์")),
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่ม", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="📋 ทั้งหมด", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="💡 Help", text="help")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
+def create_event_quick_reply():
+    """Create event-focused quick reply menu"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📅 วันนี้", text="/today")),
+        QuickReplyItem(action=MessageAction(label="🔜 ถัดไป", text="/next")),
+        QuickReplyItem(action=MessageAction(label="📆 เดือนนี้", text="/month")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหา", text="/search")),
+        QuickReplyItem(action=MessageAction(label="📋 ทั้งหมด", text="ล่าสุด")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
+def create_compact_contact_quick_reply():
+    """Create compact contact management menu"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="➕ เพิ่ม", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="🔍 หา", text="ค้นหาเบอร์อัจฉริยะ")),
+        QuickReplyItem(action=MessageAction(label="📊 สถิติ", text="สถิติเบอร์")),
+        QuickReplyItem(action=MessageAction(label="📱 มือถือ", text="หาเบอร์ mobile")),
+        QuickReplyItem(action=MessageAction(label="☎️ บ้าน", text="หาเบอร์ landline")),
+        QuickReplyItem(action=MessageAction(label="🏠 หลัก", text="สวัสดี"))
+    ])
+
 def send_automatic_notifications():
     """Send automatic notifications for events happening today or tomorrow"""
     try:
@@ -2973,6 +3008,22 @@ https://notibot-1234.onrender.com/send-notifications"""
                     )]
                 )
             )
+        return
+
+    # Show comprehensive quick reply menu
+    elif text in ["เมนูรวม", "quick", "เร็ว"]:
+        help_text = """🚀 **เมนูรวมทุกฟีเจอร์**
+        
+📅 **กิจกรรม:** วันนี้, ค้นหา, ทั้งหมด
+📞 **สมุดเบอร์:** เพิ่ม, หา, สถิติ
+💡 **ใช้งานง่าย:** กดปุ่มด้านล่าง"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_comprehensive_quick_reply())]
+            )
+        )
         return
 
     # Handle help command in Thai
