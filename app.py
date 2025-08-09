@@ -2694,7 +2694,6 @@ https://notibot-1234.onrender.com/send-notifications"""
         user_states[event.source.user_id] = {"step": "search_menu"}
         
         # Create search menu buttons
-        from linebot.v3.messaging import QuickReply, QuickReplyItem, MessageAction
         search_menu = QuickReply(items=[
             QuickReplyItem(action=MessageAction(label="📝 ค้นหาชื่อ/รายละเอียด", text="ค้นหาข้อความ")),
             QuickReplyItem(action=MessageAction(label="📅 ค้นหาวันที่", text="ค้นหาวันที่")),
