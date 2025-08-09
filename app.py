@@ -879,33 +879,44 @@ def handle_message(event):
         )
     elif text == "จัดการกิจกรรม" and event.source.user_id in admin_ids:
         try:
+            # Log for debugging
+            app.logger.info(f"Admin {event.source.user_id} requested event management")
+            
             response = supabase_client.table('events').select('*').order('event_date', desc=False).execute()
             events = response.data
             
-            if events:
-                event_list = "📋 เลือกกิจกรรมที่ต้องการจัดการ:\n\n"
-                for event in events[:8]:  # แสดงแค่ 8 รายการแรก
-                    formatted_date = format_thai_date(event.get('event_date', ''))
-                    event_list += f"🆔 {event['id']} - {event.get('event_title', 'ไม่มีชื่อ')}\n"
-                    event_list += f"📅 {formatted_date}\n"
-                    event_list += f"▫️ แก้ไข: /edit {event['id']} | ชื่อใหม่ | รายละเอียด | วันที่\n"
-                    event_list += f"▫️ ลบ: /delete {event['id']}\n"
-                    event_list += "─" * 25 + "\n\n"
+            app.logger.info(f"Found {len(events) if events else 0} events")
+            
+            if events and len(events) > 0:
+                # Create Flex Messages for better management
+                events_for_management = events[:10]  # แสดงแค่ 10 รายการแรก
                 
-                if len(events) > 8:
-                    event_list += f"และอีก {len(events) - 8} กิจกรรม...\nใช้ /list เพื่อดูทั้งหมด"
+                if len(events_for_management) == 1:
+                    # Single event - show as single Flex Message with management buttons
+                    flex_message = get_single_flex_message(events_for_management[0], is_admin=True)
+                    status_text = f"📋 กิจกรรมที่ต้องการจัดการ (1 รายการ)\n\nใช้ปุ่ม ✏️ แก้ไข หรือ 🗑️ ลบ ในการ์ดด้านบน"
+                else:
+                    # Multiple events - show as carousel
+                    flex_message = create_events_carousel_message(events_for_management, is_admin=True)
+                    status_text = f"📋 กิจกรรมที่ต้องการจัดการ ({len(events_for_management)} รายการ)\n\nใช้ปุ่ม ✏️ แก้ไข หรือ 🗑️ ลบ ในการ์ดแต่ละอัน"
+                
+                if len(events) > 10:
+                    status_text += f"\n\n📄 แสดง 10 จาก {len(events)} กิจกรรม\nใช้คำสั่ง /list เพื่อดูทั้งหมด"
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text=event_list, quick_reply=create_admin_quick_reply())]
+                        messages=[
+                            flex_message,
+                            TextMessage(text=status_text, quick_reply=create_admin_quick_reply())
+                        ]
                     )
                 )
             else:
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ\nกดปุ่ม 'เพิ่มกิจกรรม' เพื่อเริ่มต้น", quick_reply=create_admin_quick_reply())]
+                        messages=[TextMessage(text="ยังไม่มีกิจกรรมในระบบครับ\n\nกดปุ่ม '📝 เพิ่มกิจกรรม' เพื่อเริ่มต้น", quick_reply=create_admin_quick_reply())]
                     )
                 )
         except Exception as e:
@@ -913,9 +924,17 @@ def handle_message(event):
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
+                    messages=[TextMessage(text=f"เกิดข้อผิดพลาดในการดึงรายการกิจกรรมครับ\n\nError: {str(e)[:100]}", quick_reply=create_admin_quick_reply())]
                 )
             )
+    # เพิ่มการจัดการสำหรับ Non-Admin users ที่กดปุ่ม "จัดการกิจกรรม"
+    elif text == "จัดการกิจกรรม":
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text="❌ คุณไม่มีสิทธิ์ในการจัดการกิจกรรม\n\nเฉพาะ Admin เท่านั้นที่สามารถใช้ฟีเจอร์นี้ได้", quick_reply=create_main_quick_reply())]
+            )
+        )
     elif text == "ส่งแจ้งเตือน" and event.source.user_id in admin_ids:
         # Start guided notification sending
         try:
