@@ -23,7 +23,8 @@ load_dotenv()
 from contact_management import (
     validate_phone_number, search_contacts_multi_keyword, add_contact, 
     edit_contact, delete_contact, get_all_contacts, export_contacts_to_excel,
-    create_contact_flex_message
+    create_contact_flex_message, search_contacts_by_category, get_contacts_stats,
+    bulk_search_contacts
 )
 # Contact management helper functions (inline to avoid circular imports)
 def convert_thai_to_english_command(text):
@@ -81,9 +82,20 @@ def create_contact_quick_reply():
     """Create quick reply for contact management"""
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
-        QuickReplyItem(action=MessageAction(label="📋 เบอร์ทั้งหมด", text="เบอร์ทั้งหมด")),
-        QuickReplyItem(action=MessageAction(label="🔍 หาเบอร์", text="หาเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหาอัจฉริยะ", text="ค้นหาเบอร์อัจฉริยะ")),
+        QuickReplyItem(action=MessageAction(label="📊 สถิติเบอร์", text="สถิติเบอร์")),
+        QuickReplyItem(action=MessageAction(label="📄 ส่งออกข้อมูล", text="ส่งออกเบอร์")),
         QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+    ])
+
+def create_smart_search_quick_reply():
+    """Create smart search quick reply for large datasets"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📱 มือถือ", text="หาเบอร์ mobile")),
+        QuickReplyItem(action=MessageAction(label="☎️ บ้าน", text="หาเบอร์ landline")),
+        QuickReplyItem(action=MessageAction(label="🕐 ล่าสุด", text="หาเบอร์ recent")),
+        QuickReplyItem(action=MessageAction(label="📋 ทั้งหมด", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="🔍 ค้นหาชื่อ", text="หาเบอร์ "))
     ])
 
 def handle_add_contact_simple(data, event, user_id):
@@ -127,8 +139,8 @@ def handle_add_contact_simple(data, event, user_id):
     )
 
 def handle_search_contact_simple(query, event):
-    """Handle search with simple interface"""
-    contacts = search_contacts_multi_keyword(query)
+    """Handle search with simple interface using optimized bulk search"""
+    contacts = bulk_search_contacts(query, limit=50)
     
     if not contacts:
         error_msg = "❌ ไม่พบเบอร์ที่ต้องการ\n\n💡 ลองค้นหาด้วยชื่ออื่น หรือดูรายการทั้งหมด"
@@ -2793,14 +2805,185 @@ https://notibot-1234.onrender.com/send-notifications"""
         query = converted_command.replace("search_phone ", "")
         handle_search_contact_simple(query, event)
     
+    # Handle smart search menu
+    elif text == "ค้นหาเบอร์อัจฉริยะ":
+        # Get stats for smart suggestions
+        stats = get_contacts_stats()
+        smart_help = f"""🔍 **ค้นหาอัจฉริยะ**
+
+📊 **ข้อมูลปัจจุบัน:**
+• รวม: **{stats['total']}** เบอร์
+• 📱 มือถือ: **{stats['mobile']}** เบอร์  
+• ☎️ บ้าน: **{stats['landline']}** เบอร์
+• 🕐 ใหม่ (30วัน): **{stats['recent']}** เบอร์
+
+🎯 **เลือกประเภทการค้นหา:**
+📱 **มือถือ** - เบอร์ 08x, 09x, 06x
+☎️ **บ้าน** - เบอร์บ้าน/สำนักงาน  
+🕐 **ล่าสุด** - เบอร์ที่เพิ่มใหม่
+📋 **ทั้งหมด** - ดูทั้งหมดแบบแบ่งหน้า
+
+💡 **หรือค้นหาตามชื่อโดยตรง**"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=smart_help, quick_reply=create_smart_search_quick_reply())]
+            )
+        )
+        return
+
+    # Handle category search
+    elif text.startswith("หาเบอร์ ") and text.split()[1] in ["mobile", "landline", "recent"]:
+        category = text.split()[1]
+        try:
+            contacts = search_contacts_by_category(category, limit=20)
+            
+            if contacts:
+                # Create flex message for contacts
+                from contact_management import create_contact_flex_message
+                flex_contents = []
+                
+                for contact in contacts[:12]:  # Show max 12 contacts
+                    flex_contents.append(create_contact_flex_message(contact))
+                
+                flex_message = FlexMessage(
+                    alt_text=f"พบ {len(contacts)} รายการ",
+                    contents=FlexContainer.from_dict({
+                        "type": "carousel",
+                        "contents": flex_contents
+                    })
+                )
+                
+                category_names = {
+                    "mobile": "📱 มือถือ",
+                    "landline": "☎️ บ้าน", 
+                    "recent": "🕐 ล่าสุด"
+                }
+                
+                result_text = f"🔍 **{category_names[category]}** พบ {len(contacts)} รายการ"
+                if len(contacts) == 20:
+                    result_text += "\n\n💡 แสดง 20 รายการแรก ใช้ค้นหาเฉพาะเจาะจงเพื่อผลลัพธ์ที่แม่นยำกว่า"
+                
+                safe_line_api_call(line_bot_api.reply_message,
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[flex_message, TextMessage(text=result_text, quick_reply=create_smart_search_quick_reply())]
+                    )
+                )
+            else:
+                safe_line_api_call(line_bot_api.reply_message,
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="ไม่พบข้อมูลในหมวดหมู่นี้", quick_reply=create_smart_search_quick_reply())]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error in category search: {e}")
+            safe_line_api_call(line_bot_api.reply_message,
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการค้นหา", quick_reply=create_contact_quick_reply())]
+                )
+            )
+        return
+
+    # Handle contact statistics
+    elif text == "สถิติเบอร์":
+        try:
+            stats = get_contacts_stats()
+            
+            stats_text = f"""📊 **สถิติสมุดเบอร์โทร**
+
+📞 **ทั้งหมด:** {stats['total']:,} รายการ
+📱 **มือถือ:** {stats['mobile']:,} เบอร์
+☎️ **บ้าน:** {stats['landline']:,} เบอร์
+🕐 **ใหม่ (30 วัน):** {stats['recent']:,} เบอร์
+
+💡 **ใช้ค้นหาอัจฉริยะเพื่อหาข้อมูลที่ต้องการ**"""
+            
+            safe_line_api_call(line_bot_api.reply_message,
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=stats_text, quick_reply=create_smart_search_quick_reply())]
+                )
+            )
+        except Exception as e:
+            app.logger.error(f"Error getting stats: {e}")
+            safe_line_api_call(line_bot_api.reply_message,
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงสถิติ", quick_reply=create_contact_quick_reply())]
+                )
+            )
+        return
+    
+    # Handle export contacts (admin only)  
+    elif text == "ส่งออกเบอร์":
+        if event.source.user_id not in admin_ids:
+            safe_line_api_call(line_bot_api.reply_message,
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text="⚠️ ฟีเจอร์นี้สำหรับแอดมินเท่านั้น",
+                        quick_reply=create_contact_quick_reply()
+                    )]
+                )
+            )
+            return
+        
+        try:
+            from contact_management import export_contacts_to_excel
+            result = export_contacts_to_excel()
+            
+            if result["success"]:
+                export_text = f"""📄 **ส่งออกข้อมูลเบอร์โทร**
+
+📊 **สรุป:**
+• ไฟล์: {result['filename']}
+• ขนาด: {len(result['file'])//1024} KB
+
+💡 **ไฟล์ Excel พร้อมส่งออกแล้ว**
+📧 สามารถใช้เป็นไฟล์แนบในอีเมลหรือแชร์ได้"""
+
+                safe_line_api_call(line_bot_api.reply_message,
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=export_text, quick_reply=create_contact_quick_reply())]
+                    )
+                )
+            else:
+                safe_line_api_call(line_bot_api.reply_message,
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(
+                            text=f"❌ **เกิดข้อผิดพลาด**\n{result['error']}",
+                            quick_reply=create_contact_quick_reply()
+                        )]
+                    )
+                )
+        except Exception as e:
+            app.logger.error(f"Error exporting contacts: {e}")
+            safe_line_api_call(line_bot_api.reply_message,
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(
+                        text="เกิดข้อผิดพลาดในการส่งออกข้อมูล",
+                        quick_reply=create_contact_quick_reply()
+                    )]
+                )
+            )
+        return
+
     # Handle help command in Thai
     elif text.lower() in ["วิธีใช้เบอร์", "ช่วยเหลือเบอร์", "help เบอร์"]:
         help_text = """📞 **คู่มือใช้งาน**
 
 **เพิ่มเบอร์:** เพิ่มเบอร์ ชื่อ 081-234-5678  
-**ค้นหา:** หาเบอร์ ชื่อหรือเบอร์
+**ค้นหาอัจฉริยะ:** สำหรับข้อมูลจำนวนมาก
+**สถิติ:** ดูภาพรวมข้อมูลทั้งหมด
 
-💡 **ง่ายและรวดเร็ว**"""
+💡 **เหมาะสำหรับข้อมูลหลายพันรายการ**"""
         
         safe_line_api_call(line_bot_api.reply_message,
             ReplyMessageRequest(

@@ -55,11 +55,91 @@ def search_contacts_multi_keyword(keywords, user_id=None):
         for keyword in keyword_list:
             query = query.or_(f"name.ilike.%{keyword}%,phone_number.ilike.%{keyword}%")
         
-        # Execute query
-        result = query.execute()
+        # Execute query with limit for performance
+        result = query.limit(50).execute()
         return result.data if result.data else []
     except Exception as e:
         print(f"Error searching contacts: {e}")
+        return []
+
+def search_contacts_by_category(category="all", limit=20, offset=0):
+    """Search contacts by category for large datasets with pagination"""
+    try:
+        query = supabase_client.table('contacts').select('*')
+        
+        if category == "recent":
+            # Get recently added contacts
+            query = query.order('created_at', desc=True).limit(limit).offset(offset)
+        elif category == "mobile":
+            # Get mobile numbers (08x, 09x, 06x) with optimized query
+            query = query.or_("phone_number.ilike.08%,phone_number.ilike.09%,phone_number.ilike.06%").order('name').limit(limit).offset(offset)
+        elif category == "landline":
+            # Get landline numbers (02x-07x) with optimized query
+            query = query.or_("phone_number.ilike.02%,phone_number.ilike.03%,phone_number.ilike.04%,phone_number.ilike.05%,phone_number.ilike.07%").order('name').limit(limit).offset(offset)
+        else:
+            # Get all contacts with pagination and ordering
+            query = query.order('name').limit(limit).offset(offset)
+        
+        result = query.execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"Error searching contacts by category: {e}")
+        return []
+
+def get_contacts_stats():
+    """Get statistics about contacts for large datasets"""
+    try:
+        # Get total count
+        total_result = supabase_client.table('contacts').select('*', count='exact').execute()
+        total_count = total_result.count
+        
+        # Get mobile count
+        mobile_result = supabase_client.table('contacts').select('*', count='exact').or_("phone_number.ilike.08%,phone_number.ilike.09%,phone_number.ilike.06%").execute()
+        mobile_count = mobile_result.count
+        
+        # Get recent count (last 30 days)
+        from datetime import datetime, timedelta
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+        recent_result = supabase_client.table('contacts').select('*', count='exact').gte('created_at', thirty_days_ago).execute()
+        recent_count = recent_result.count
+        
+        return {
+            "total": total_count,
+            "mobile": mobile_count,
+            "landline": total_count - mobile_count,
+            "recent": recent_count
+        }
+    except Exception as e:
+        print(f"Error getting contacts stats: {e}")
+        return {"total": 0, "mobile": 0, "landline": 0, "recent": 0}
+
+def bulk_search_contacts(search_terms, limit=50):
+    """Bulk search contacts for multiple keywords with performance optimization"""
+    try:
+        if not search_terms or not search_terms.strip():
+            return []
+        
+        # Split search terms and clean them
+        terms = [term.strip() for term in search_terms.split() if term.strip()]
+        if not terms:
+            return []
+        
+        # Use Full Text Search for better performance on large datasets
+        query = supabase_client.table('contacts').select('*')
+        
+        # Build OR conditions for each term against name and phone
+        or_conditions = []
+        for term in terms:
+            or_conditions.append(f"name.ilike.%{term}%")
+            or_conditions.append(f"phone_number.ilike.%{term}%")
+        
+        # Execute optimized query with ordering
+        query = query.or_(",".join(or_conditions)).order('name').limit(limit)
+        result = query.execute()
+        
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"Error in bulk search: {e}")
         return []
 
 def add_contact(name, phone_number, user_id):
