@@ -552,7 +552,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.1-contact-fix"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.2-search-fix"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -2803,8 +2803,8 @@ https://notibot-1234.onrender.com/send-notifications"""
         handle_add_contact_simple(data, event, user_id)
     
     elif text.startswith("search_phone "):
-        text = text.replace("search_phone ", "หาเบอร์ ")
-        handle_search_contact_user(text, event, line_bot_api, create_main_quick_reply)
+        query = text.replace("search_phone ", "")
+        handle_search_contact_simple(query, event)
     
     # Handle Thai commands (new format)
     elif converted_command.startswith("add_phone "):
@@ -2813,8 +2813,8 @@ https://notibot-1234.onrender.com/send-notifications"""
         handle_add_contact_simple(data, event, user_id)
     
     elif converted_command.startswith("search_phone "):
-        thai_text = converted_command.replace("search_phone ", "หาเบอร์ ")
-        handle_search_contact_user(thai_text, event, line_bot_api, create_main_quick_reply)
+        query = converted_command.replace("search_phone ", "")
+        handle_search_contact_simple(query, event)
     
     # Handle show all contacts in Thai
     elif text.lower() in ["เบอร์ทั้งหมด", "ทั้งหมด", "ดูทั้งหมด", "รายการทั้งหมด"]:
