@@ -1,0 +1,5 @@
+FORCE_DEPLOYMENT_2025_08_09=true
+# This file forces Render to rebuild and deploy the retry mechanism fix
+DEPLOYMENT_TIMESTAMP=$(date)
+CRITICAL_FIX=urllib3_protocol_error_retry_mechanism
+STATUS=URGENT_DEPLOY_REQUIRED
