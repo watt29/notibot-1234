@@ -549,7 +549,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.7-ui-simplify"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.8-fix-search"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -952,93 +952,6 @@ def handle_message(event):
                     )]
                 )
             )
-    elif text == "/search":
-        # Start guided search flow
-        user_states[event.source.user_id] = {"step": "search_menu"}
-        
-        # Create search menu buttons
-        search_menu = QuickReply(items=[
-            QuickReplyItem(action=MessageAction(label="📝 ค้นหาชื่อ/รายละเอียด", text="ค้นหาข้อความ")),
-            QuickReplyItem(action=MessageAction(label="📅 ค้นหาวันที่", text="ค้นหาวันที่")),
-            QuickReplyItem(action=MessageAction(label="🔍 ค้นหาทั้งหมด", text="ค้นหาทั้งหมด")),
-            QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
-        ])
-        
-        search_help = """🔍 เลือกประเภทการค้นหา
-
-🔸 **ค้นหาชื่อ/รายละเอียด** - ค้นหาจากคำในชื่อหรือรายละเอียดกิจกรรม
-🔸 **ค้นหาวันที่** - ค้นหากิจกรรมในวันที่เฉพาะ  
-🔸 **ค้นหาทั้งหมด** - พิมพ์คำค้นเองได้ทุกรูปแบบ
-
-เลือกปุ่มด้านล่างเพื่อเริ่มค้นหา"""
-        
-        safe_line_api_call(line_bot_api.reply_message,
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=search_help, quick_reply=search_menu)]
-            )
-        )
-    elif text.startswith("/search "):
-        search_term = text[len("/search "):].strip()
-        
-        try:
-            # Check if search term is a date
-            if re.match(r'\d{4}-\d{2}-\d{2}', search_term):
-                response = supabase_client.table('events').select('*').eq('event_date', search_term).execute()
-            else:
-                # Search in title and description
-                response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{search_term}%,event_description.ilike.%{search_term}%").order('event_date', desc=False).execute()
-            
-            events = response.data
-            
-            if events:
-                is_admin = event.source.user_id in admin_ids
-                total_events = len(events)
-                
-                if len(events) == 1:
-                    flex_message = get_single_flex_message(events[0], is_admin)
-                elif total_events > 10:
-                    flex_message = create_events_carousel_message(events, is_admin, 1)
-                    total_pages = (total_events + 9) // 10
-                    pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
-                    status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
-                    safe_line_api_call(line_bot_api.reply_message,
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
-                        )
-                    )
-                    return
-                else:
-                    flex_message = create_events_carousel_message(events, is_admin)
-                
-                safe_line_api_call(line_bot_api.reply_message,
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
-                    )
-                )
-            else:
-                safe_line_api_call(line_bot_api.reply_message,
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(
-                            text=f"🔍 ไม่พบกิจกรรมที่ตรงกับ '{search_term}'",
-                            quick_reply=create_main_quick_reply()
-                        )]
-                    )
-                )
-        except Exception as e:
-            app.logger.error(f"Error searching events: {e}")
-            safe_line_api_call(line_bot_api.reply_message,
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[TextMessage(
-                        text="เกิดข้อผิดพลาดในการค้นหาค่ะ กรุณาลองใหม่อีกครั้ง",
-                        quick_reply=create_main_quick_reply()
-                    )]
-                )
-            )
     elif text == "/admin" and event.source.user_id in admin_ids:
         admin_help_text = """🔧 เมนู Admin - ระบบครบครัน!
 
@@ -1187,10 +1100,12 @@ def handle_message(event):
             )
         except Exception as e:
             app.logger.error(f"Error preparing notification menu: {e}")
+            import traceback
+            traceback.print_exc()
             safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="เกิดข้อผิดพลาดในการเตรียมเมนูแจ้งเตือน", quick_reply=create_admin_quick_reply())]
+                    messages=[TextMessage(text=f"เกิดข้อผิดพลาดในการเตรียมเมนูแจ้งเตือน\n\nError: {str(e)}", quick_reply=create_admin_quick_reply())]
                 )
             )
     elif text == "/list" and event.source.user_id in admin_ids:
@@ -2772,7 +2687,37 @@ https://notibot-1234.onrender.com/send-notifications"""
                     )
                 )
     
-    # ==================== CONTACT MANAGEMENT COMMANDS ====================
+    # ==================== EVENT SEARCH COMMANDS ====================
+    # Handle /search before contact management to avoid conflicts
+    elif text == "/search":
+        # Start guided search flow
+        user_states[event.source.user_id] = {"step": "search_menu"}
+        
+        # Create search menu buttons
+        search_menu = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label="📝 ค้นหาชื่อ/รายละเอียด", text="ค้นหาข้อความ")),
+            QuickReplyItem(action=MessageAction(label="📅 ค้นหาวันที่", text="ค้นหาวันที่")),
+            QuickReplyItem(action=MessageAction(label="🔍 ค้นหาทั้งหมด", text="ค้นหาทั้งหมด")),
+            QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
+        ])
+        
+        search_help = """🔍 เลือกประเภทการค้นหา
+
+🔸 **ค้นหาชื่อ/รายละเอียด** - ค้นหาจากคำในชื่อหรือรายละเอียดกิจกรรม
+🔸 **ค้นหาวันที่** - ค้นหากิจกรรมตามวันที่
+🔸 **ค้นหาทั้งหมด** - แสดงกิจกรรมทั้งหมด
+
+เลือกปุ่มด้านล่างเพื่อเริ่มค้นหา"""
+        
+        safe_line_api_call(line_bot_api.reply_message,
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=search_help, quick_reply=search_menu)]
+            )
+        )
+        return
+
+    # ==================== CONTACT MANAGEMENT COMMANDS ===================="
     
     # Handle show all contacts in Thai FIRST (before conversion)
     if text.lower() in ["เบอร์ทั้งหมด", "ทั้งหมด", "ดูทั้งหมด", "รายการทั้งหมด"]:
