@@ -177,7 +177,6 @@ app = Flask(__name__)
 def safe_line_api_call(api_method, *args, max_retries=3, **kwargs):
     """Safely call LINE Bot API with retry logic for connection issues"""
     from urllib3.exceptions import ProtocolError
-    from linebot.v3.exceptions import ApiException
     
     for attempt in range(max_retries):
         try:
@@ -191,10 +190,6 @@ def safe_line_api_call(api_method, *args, max_retries=3, **kwargs):
             else:
                 app.logger.error(f"LINE API failed after {max_retries} attempts: {e}")
                 raise e
-        except ApiException as e:
-            # Don't retry API errors (bad requests, invalid tokens, etc.)
-            app.logger.error(f"LINE API error: {e}")
-            raise e
         except Exception as e:
             # Log other unexpected errors but don't retry
             app.logger.error(f"Unexpected LINE API error: {e}")
