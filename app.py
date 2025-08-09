@@ -14,20 +14,161 @@ from supabase import create_client, Client
 import re
 from dotenv import load_dotenv
 import tempfile
+
+# Load environment variables first
+load_dotenv()
+
 from contact_management import (
     validate_phone_number, search_contacts_multi_keyword, add_contact, 
     edit_contact, delete_contact, get_all_contacts, export_contacts_to_excel,
     create_contact_flex_message
 )
-from contact_commands import (
-    handle_add_contact_user, handle_search_contact_user, handle_admin_commands,
-    create_contact_quick_reply, create_contact_admin_quick_reply
-)
-from easy_commands import convert_thai_to_english_command
-from smart_helper import detect_incomplete_command, analyze_user_intent, format_error_message
+# Contact management helper functions (inline to avoid circular imports)
+def convert_thai_to_english_command(text):
+    """Convert Thai natural language to English commands"""
+    text = text.lower().strip()
+    
+    # เพิ่มเบอร์ commands
+    add_patterns = ["เพิ่มเบอร์", "บันทึกเบอร์", "เพิ่มชื่อ", "บันทึกชื่อ", "เก็บเบอร์"]
+    # ค้นหา commands  
+    search_patterns = ["หาเบอร์", "ค้นหา", "หาชื่อ", "เบอร์ของ", "ชื่อ", "เบอร์", "หา"]
+    
+    # Check if it's an add command
+    for pattern in add_patterns:
+        if text.startswith(pattern):
+            remaining = text.replace(pattern, "").strip()
+            if remaining:
+                return f"add_phone {remaining}"
+            else:
+                return "add_phone "
+    
+    # Check if it's a search command
+    for pattern in search_patterns:
+        if text.startswith(pattern):
+            remaining = text.replace(pattern, "").strip()
+            if remaining:
+                return f"search_phone {remaining}"
+            else:
+                return "search_phone "
+    
+    return text
 
-# Load environment variables from .env file
-load_dotenv()
+def detect_incomplete_command(text):
+    """Detect incomplete commands and suggest completion"""
+    text = text.lower().strip()
+    
+    # Check for incomplete add commands
+    if text in ["add_phone", "เพิ่มเบอร์", "บันทึกเบอร์"]:
+        return {
+            "type": "incomplete_add",
+            "message": "📝 กรุณาใส่ข้อมูลเพิ่มเติม\n\n💡 รูปแบบ: เพิ่มเบอร์ ชื่อ เบอร์โทร\n🔤 ตัวอย่าง: เพิ่มเบอร์ สมชาย 081-234-5678",
+            "suggestions": ["เพิ่มเบอร์ สมชาย 081-234-5678", "เพิ่มเบอร์ นางสาวดาว 089-999-8888"]
+        }
+    
+    # Check for incomplete search commands
+    if text in ["search_phone", "หาเบอร์", "ค้นหา", "หา"]:
+        return {
+            "type": "incomplete_search", 
+            "message": "🔍 กรุณาใส่คำค้นหา\n\n💡 สามารถค้นหาได้:\n• ชื่อ: หาเบอร์ สมชาย\n• เบอร์: หาเบอร์ 081\n• หลายคำ: หาเบอร์ สมชาย 081",
+            "suggestions": ["หาเบอร์ สมชาย", "หาเบอร์ 081", "หาเบอร์ คุณ"]
+        }
+    
+    return None
+
+def create_contact_quick_reply():
+    """Create quick reply for contact management"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="📞 เพิ่มเบอร์", text="เพิ่มเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="🔍 หาเบอร์", text="หาเบอร์ ")),
+        QuickReplyItem(action=MessageAction(label="📋 ดูทั้งหมด", text="เบอร์ทั้งหมด")),
+        QuickReplyItem(action=MessageAction(label="🏠 เมนูหลัก", text="สวัสดี"))
+    ])
+
+def handle_add_contact_simple(data, event, user_id):
+    """Handle add contact with simple interface"""
+    parts = data.strip().split()
+    
+    if len(parts) < 2:
+        error_msg = "❌ กรุณาใส่ข้อมูลครบ\n\n💡 รูปแบบ: เพิ่มเบอร์ ชื่อ เบอร์โทร\n🔤 ตัวอย่าง: เพิ่มเบอร์ สมชาย 081-234-5678"
+        quick_reply = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label="💡 เพิ่มเบอร์ สมชาย 081-234-5678", text="เพิ่มเบอร์ สมชาย 081-234-5678")),
+            QuickReplyItem(action=MessageAction(label="💡 เพิ่มเบอร์ ดาว 089-999-8888", text="เพิ่มเบอร์ ดาว 089-999-8888"))
+        ])
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=error_msg, quick_reply=quick_reply)]
+            )
+        )
+        return
+    
+    name = parts[0]
+    phone = parts[1]
+    
+    result = add_contact(name, phone, user_id)
+    
+    if result["success"]:
+        contact_data = result["data"]
+        success_msg = f"✅ บันทึกเบอร์เรียบร้อย!\n\n📝 ชื่อ: {contact_data['name']}\n📞 เบอร์: {contact_data['phone_number']}\n\n💡 ลองค้นหาดู: หาเบอร์ {name}"
+        quick_reply = create_contact_quick_reply()
+    else:
+        success_msg = f"❌ {result['error']}\n\n💡 ลองตรวจสอบเบอร์โทรให้ถูกต้อง"
+        quick_reply = create_contact_quick_reply()
+    
+    line_bot_api.reply_message(
+        ReplyMessageRequest(
+            reply_token=event.reply_token,
+            messages=[TextMessage(text=success_msg, quick_reply=quick_reply)]
+        )
+    )
+
+def handle_search_contact_simple(query, event):
+    """Handle search with simple interface"""
+    contacts = search_contacts_multi_keyword(query)
+    
+    if not contacts:
+        error_msg = "❌ ไม่พบข้อมูลที่ตรงกับคำค้นหา\n\n💡 ลองใช้คำค้นหาอื่น เช่น บางส่วนของชื่อ หรือเลขเบอร์"
+        quick_reply = create_contact_quick_reply()
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=error_msg, quick_reply=quick_reply)]
+            )
+        )
+        return
+    
+    if len(contacts) == 1:
+        # Single result - show detailed
+        contact = contacts[0]
+        flex_content = create_contact_flex_message(contact, is_single=True)
+        flex_message = FlexMessage(alt_text="ผลการค้นหา", contents=FlexContainer.from_dict(flex_content))
+        
+        success_msg = f"🎯 พบแล้ว! ({len(contacts)} คน)"
+        quick_reply = create_contact_quick_reply()
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[flex_message, TextMessage(text=success_msg, quick_reply=quick_reply)]
+            )
+        )
+    else:
+        # Multiple results - show carousel
+        bubbles = [create_contact_flex_message(contact) for contact in contacts[:10]]
+        carousel_content = {"type": "carousel", "contents": bubbles}
+        flex_message = FlexMessage(alt_text="ผลการค้นหา", contents=FlexContainer.from_dict(carousel_content))
+        
+        success_msg = f"🎯 พบ {len(contacts)} คน{' (แสดง 10 คนแรก)' if len(contacts) > 10 else ''}"
+        quick_reply = create_contact_quick_reply()
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[flex_message, TextMessage(text=success_msg, quick_reply=quick_reply)]
+            )
+        )
 
 app = Flask(__name__)
 
