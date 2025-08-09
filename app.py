@@ -2689,7 +2689,7 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # ==================== EVENT SEARCH COMMANDS ====================
     # Handle /search before contact management to avoid conflicts
-    elif text == "/search":
+    if text == "/search":
         # Start guided search flow
         user_states[event.source.user_id] = {"step": "search_menu"}
         
