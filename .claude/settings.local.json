@@ -8,7 +8,9 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "WebFetch(domain:notibot-1234-1.onrender.com)",
-      "WebFetch(domain:notibot-1234.onrender.com)"
+      "WebFetch(domain:notibot-1234.onrender.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(curl:*)"
     ],
     "deny": []
   }
