@@ -663,23 +663,29 @@ def handle_message(event):
                 )
             )
     elif text == "/search":
-        search_help = """🔍 ค้นหากิจกรรม
+        # Start guided search flow
+        user_states[event.source.user_id] = {"step": "search_menu"}
+        
+        # Create search menu buttons
+        search_menu = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label="📝 ค้นหาชื่อ/รายละเอียด", text="ค้นหาข้อความ")),
+            QuickReplyItem(action=MessageAction(label="📅 ค้นหาวันที่", text="ค้นหาวันที่")),
+            QuickReplyItem(action=MessageAction(label="🔍 ค้นหาทั้งหมด", text="ค้นหาทั้งหมด")),
+            QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
+        ])
+        
+        search_help = """🔍 เลือกประเภทการค้นหา
 
-📝 ค้นหาจากชื่อ/รายละเอียด:
-/search คำค้น
+🔸 **ค้นหาชื่อ/รายละเอียด** - ค้นหาจากคำในชื่อหรือรายละเอียดกิจกรรม
+🔸 **ค้นหาวันที่** - ค้นหากิจกรรมในวันที่เฉพาะ  
+🔸 **ค้นหาทั้งหมด** - พิมพ์คำค้นเองได้ทุกรูปแบบ
 
-📅 ค้นหาตามวันที่:
-/search 2025-08-15
-
-ตัวอย่าง:
-/search บัตร
-/search ประชุม
-/search 2025-08-20"""
+เลือกปุ่มด้านล่างเพื่อเริ่มค้นหา"""
         
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=search_help, quick_reply=create_main_quick_reply())]
+                messages=[TextMessage(text=search_help, quick_reply=search_menu)]
             )
         )
     elif text.startswith("/search "):
@@ -1143,11 +1149,285 @@ def handle_message(event):
     else:
         user_id = event.source.user_id
         
-        # Handle guided conversation flow for admin
-        if user_id in admin_ids and user_id in user_states:
+        # Handle guided conversation flow for all users (admin and search)
+        if user_id in user_states:
             state = user_states[user_id]
             
-            if state["step"] == "waiting_title":
+            # Search flow handlers (for all users)
+            if state["step"] == "search_menu":
+                selected_option = text.strip()
+                
+                if selected_option == "ค้นหาข้อความ":
+                    state["step"] = "search_text_input"
+                    state["search_type"] = "text"
+                    
+                    guide_text = """📝 ค้นหาจากชื่อ/รายละเอียด
+
+🔸 **พิมพ์คำที่ต้องการค้นหา:**
+
+ตัวอย่าง:
+• บัตร
+• ประชุม  
+• แม่
+• วันเกิด
+
+💬 พิมพ์คำค้นแล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "ค้นหาวันที่":
+                    state["step"] = "search_date_input"
+                    state["search_type"] = "date"
+                    
+                    guide_text = """📅 ค้นหาตามวันที่
+
+🔸 **เลือกวันที่ที่ต้องการค้นหา:**
+
+กดปุ่มด้านล่างเพื่อเลือกวันที่ หรือกด "📅 วันอื่น" แล้วพิมพ์ YYYY-MM-DD"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "ค้นหาทั้งหมด":
+                    state["step"] = "search_free_input"
+                    state["search_type"] = "free"
+                    
+                    guide_text = """🔍 ค้นหาแบบอิสระ
+
+💬 **พิมพ์คำค้นในรูปแบบใดก็ได้:**
+
+📝 ค้นหาคำ: บัตร, ประชุม, แม่
+📅 ค้นหาวันที่: 2025-08-15, 2025-12-25
+🔤 ค้นหาผสม: อะไรก็ได้
+
+ระบบจะค้นหาในทุกส่วน (ชื่อ, รายละเอียด, วันที่)"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                return
+            
+            elif state["step"] == "search_text_input":
+                search_term = text.strip()
+                del user_states[user_id]  # Clear state
+                
+                try:
+                    # Search in title and description
+                    response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{search_term}%,event_description.ilike.%{search_term}%").order('event_date', desc=False).execute()
+                    events = response.data
+                    
+                    if events:
+                        is_admin = user_id in admin_ids
+                        total_events = len(events)
+                        
+                        if len(events) == 1:
+                            flex_message = get_single_flex_message(events[0], is_admin)
+                        elif total_events > 10:
+                            flex_message = create_events_carousel_message(events, is_admin, 1)
+                            total_pages = (total_events + 9) // 10
+                            pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
+                            status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
+                            line_bot_api.reply_message(
+                                ReplyMessageRequest(
+                                    reply_token=event.reply_token,
+                                    messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
+                                )
+                            )
+                            return
+                        else:
+                            flex_message = create_events_carousel_message(events, is_admin)
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(
+                                    text=f"🔍 ไม่พบกิจกรรมที่ตรงกับ '{search_term}'",
+                                    quick_reply=create_main_quick_reply()
+                                )]
+                            )
+                        )
+                except Exception as e:
+                    app.logger.error(f"Error in guided text search: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(
+                                text="เกิดข้อผิดพลาดในการค้นหา กรุณาลองใหม่อีกครั้ง",
+                                quick_reply=create_main_quick_reply()
+                            )]
+                        )
+                    )
+                return
+            
+            elif state["step"] == "search_date_input":
+                selected_date = text.strip()
+                
+                # Handle "วันอื่น" case
+                if selected_date == "วันอื่น":
+                    guide_text = """📅 ระบุวันที่ค้นหา
+
+พิมพ์วันที่ในรูปแบบ: **YYYY-MM-DD**
+
+ตัวอย่าง:
+• 2025-08-15
+• 2025-09-01
+• 2025-12-25
+
+💬 พิมพ์วันที่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                del user_states[user_id]  # Clear state
+                
+                # Validate date format
+                try:
+                    datetime.strptime(selected_date, '%Y-%m-%d').date()
+                except ValueError:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_main_quick_reply())]
+                        )
+                    )
+                    return
+                
+                try:
+                    response = supabase_client.table('events').select('*').eq('event_date', selected_date).execute()
+                    events = response.data
+                    
+                    if events:
+                        is_admin = user_id in admin_ids
+                        total_events = len(events)
+                        
+                        if len(events) == 1:
+                            flex_message = get_single_flex_message(events[0], is_admin)
+                        else:
+                            flex_message = create_events_carousel_message(events, is_admin)
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[flex_message, TextMessage(text=f"📅 วันที่ {format_thai_date(selected_date)} พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(
+                                    text=f"📅 ไม่พบกิจกรรมในวันที่ {format_thai_date(selected_date)}",
+                                    quick_reply=create_main_quick_reply()
+                                )]
+                            )
+                        )
+                except Exception as e:
+                    app.logger.error(f"Error in guided date search: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(
+                                text="เกิดข้อผิดพลาดในการค้นหา กรุณาลองใหม่อีกครั้ง",
+                                quick_reply=create_main_quick_reply()
+                            )]
+                        )
+                    )
+                return
+            
+            elif state["step"] == "search_free_input":
+                search_term = text.strip()
+                del user_states[user_id]  # Clear state
+                
+                try:
+                    # Check if search term is a date
+                    if re.match(r'\d{4}-\d{2}-\d{2}', search_term):
+                        response = supabase_client.table('events').select('*').eq('event_date', search_term).execute()
+                    else:
+                        # Search in title and description
+                        response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{search_term}%,event_description.ilike.%{search_term}%").order('event_date', desc=False).execute()
+                    
+                    events = response.data
+                    
+                    if events:
+                        is_admin = user_id in admin_ids
+                        total_events = len(events)
+                        
+                        if len(events) == 1:
+                            flex_message = get_single_flex_message(events[0], is_admin)
+                        elif total_events > 10:
+                            flex_message = create_events_carousel_message(events, is_admin, 1)
+                            total_pages = (total_events + 9) // 10
+                            pagination_reply = create_pagination_quick_reply(1, total_pages, f"/search {search_term}")
+                            status_text = f"🔍 ค้นหา '{search_term}' - หน้า 1/{total_pages} (พบ {total_events} รายการ)"
+                            line_bot_api.reply_message(
+                                ReplyMessageRequest(
+                                    reply_token=event.reply_token,
+                                    messages=[flex_message, TextMessage(text=status_text, quick_reply=pagination_reply)]
+                                )
+                            )
+                            return
+                        else:
+                            flex_message = create_events_carousel_message(events, is_admin)
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[flex_message, TextMessage(text=f"🔍 ค้นหา '{search_term}' พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(
+                                    text=f"🔍 ไม่พบกิจกรรมที่ตรงกับ '{search_term}'",
+                                    quick_reply=create_main_quick_reply()
+                                )]
+                            )
+                        )
+                except Exception as e:
+                    app.logger.error(f"Error in guided free search: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(
+                                text="เกิดข้อผิดพลาดในการค้นหา กรุณาลองใหม่อีกครั้ง",
+                                quick_reply=create_main_quick_reply()
+                            )]
+                        )
+                    )
+                return
+            
+            # Admin-only flows
+            elif user_id in admin_ids and state["step"] == "waiting_title":
                 # Save title and ask for description
                 state["event_data"]["title"] = text.strip()
                 state["step"] = "waiting_description"
@@ -1680,13 +1960,23 @@ def handle_message(event):
                     del user_states[user_id]
                     return
         
-        # Handle cancel during guided flow
-        if user_id in admin_ids and user_id in user_states and text in ["สวัสดี", "ยกเลิก"]:
+        # Handle cancel during guided flow (for all users)
+        if user_id in user_states and text in ["สวัสดี", "ยกเลิก"]:
+            current_step = user_states[user_id].get("step", "")
             del user_states[user_id]
+            
+            # Different cancel messages based on user type and action
+            if user_id in admin_ids and current_step.startswith(("waiting_", "edit_")):
+                cancel_msg = "❌ ยกเลิกการดำเนินการแล้ว"
+                quick_reply = create_admin_quick_reply()
+            else:
+                cancel_msg = "❌ ยกเลิกการค้นหาแล้ว"
+                quick_reply = create_main_quick_reply()
+            
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="❌ ยกเลิกการเพิ่มกิจกรรมแล้ว", quick_reply=create_admin_quick_reply())]
+                    messages=[TextMessage(text=cancel_msg, quick_reply=quick_reply)]
                 )
             )
             return
