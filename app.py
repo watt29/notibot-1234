@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# FORCE DEPLOY: 2025-08-09 - Emergency SyntaxError fix elif→if line 2692
+# NUCLEAR FORCE REBUILD: 2025-08-09T14:17 - Cache clear emergency
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
