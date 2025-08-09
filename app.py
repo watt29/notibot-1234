@@ -2686,10 +2686,10 @@ https://notibot-1234.onrender.com/send-notifications"""
                         messages=[TextMessage(text="เกิดข้อผิดพลาดในการบันทึกกิจกรรมครับ", quick_reply=create_admin_quick_reply())]
                     )
                 )
-    
-    # ==================== EVENT SEARCH COMMANDS ====================
-    # Handle /search before contact management to avoid conflicts
-    if text == "/search":
+        
+        # ==================== EVENT SEARCH COMMANDS ====================
+        # Handle /search before contact management to avoid conflicts
+    elif text == "/search":
         # Start guided search flow
         user_states[event.source.user_id] = {"step": "search_menu"}
         
