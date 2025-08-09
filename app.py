@@ -988,25 +988,34 @@ def handle_message(event):
                 event_data = response.data[0]
                 current_date = event_data.get('event_date', '2025-01-01')
                 
-                # Start guided edit flow
+                # Start guided edit flow - show selection menu
                 user_states[event.source.user_id] = {
-                    "step": "edit_waiting_title", 
+                    "step": "edit_menu", 
                     "event_id": event_id,
                     "current_data": event_data
                 }
                 
-                guide_text = f"""✏️ แก้ไขกิจกรรม ID: {event_id} - ขั้นตอน 1/3
+                # Create selection buttons for what to edit
+                edit_menu = QuickReply(items=[
+                    QuickReplyItem(action=MessageAction(label="📝 แก้ชื่อ", text="แก้ชื่อ")),
+                    QuickReplyItem(action=MessageAction(label="📋 แก้รายละเอียด", text="แก้รายละเอียด")),
+                    QuickReplyItem(action=MessageAction(label="📅 แก้วันที่", text="แก้วันที่")),
+                    QuickReplyItem(action=MessageAction(label="🔄 แก้ทั้งหมด", text="แก้ทั้งหมด")),
+                    QuickReplyItem(action=MessageAction(label="❌ ยกเลิก", text="สวัสดี"))
+                ])
+                
+                guide_text = f"""✏️ แก้ไขกิจกรรม ID: {event_id}
 
-📝 **ปัจจุบัน:** {event_data.get('event_title', '')}
+📝 **ชื่อ:** {event_data.get('event_title', '')}
+📋 **รายละเอียด:** {event_data.get('event_description', '')}  
+📅 **วันที่:** {format_thai_date(event_data.get('event_date', ''))}
 
-🔸 **ส่งชื่อใหม่** หรือส่ง "เหมือนเดิม" เพื่อข้าม
-
-💬 แค่พิมพ์ชื่อใหม่แล้วส่งมา"""
+🔸 **เลือกส่วนที่ต้องการแก้ไข:**"""
                 
                 line_bot_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text=guide_text, quick_reply=create_admin_quick_reply())]
+                        messages=[TextMessage(text=guide_text, quick_reply=edit_menu)]
                     )
                 )
             else:
@@ -1271,7 +1280,268 @@ def handle_message(event):
                     del user_states[user_id]
                     return
             
-            # Edit flow handlers
+            # Edit menu handler
+            elif state["step"] == "edit_menu":
+                selected_option = text.strip()
+                
+                if selected_option == "แก้ชื่อ":
+                    state["step"] = "edit_title_only"
+                    state["edit_mode"] = "title_only"
+                    
+                    guide_text = f"""📝 แก้ไขชื่อกิจกรรม
+
+**ปัจจุบัน:** {state["current_data"].get('event_title', '')}
+
+🔸 **ส่งชื่อใหม่:**
+
+💬 พิมพ์ชื่อใหม่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "แก้รายละเอียด":
+                    state["step"] = "edit_description_only"
+                    state["edit_mode"] = "description_only"
+                    
+                    guide_text = f"""📋 แก้ไขรายละเอียดกิจกรรม
+
+**ปัจจุบัน:** {state["current_data"].get('event_description', '')}
+
+🔸 **ส่งรายละเอียดใหม่:**
+
+💬 พิมพ์รายละเอียดใหม่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "แก้วันที่":
+                    state["step"] = "edit_date_only"
+                    state["edit_mode"] = "date_only"
+                    
+                    current_date_str = state["current_data"].get('event_date', '')
+                    
+                    guide_text = f"""📅 แก้ไขวันที่กิจกรรม
+
+**ปัจจุบัน:** {format_thai_date(current_date_str)}
+
+🔸 **เลือกวันที่ใหม่:**
+
+กดปุ่มด้านล่างเพื่อเลือกวันที่ใหม่"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_date_quick_reply())]
+                        )
+                    )
+                    return
+                
+                elif selected_option == "แก้ทั้งหมด":
+                    state["step"] = "edit_waiting_title"
+                    state["edit_mode"] = "full_edit"
+                    
+                    guide_text = f"""✏️ แก้ไขกิจกรรม - ขั้นตอน 1/3
+
+📝 **ปัจจุบัน:** {state["current_data"].get('event_title', '')}
+
+🔸 **ส่งชื่อใหม่** หรือส่ง "เหมือนเดิม" เพื่อข้าม
+
+💬 แค่พิมพ์ชื่อใหม่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                return
+            
+            # Single field edit handlers
+            elif state["step"] == "edit_title_only":
+                new_title = text.strip()
+                
+                try:
+                    response = supabase_client.table('events').update({
+                        'event_title': new_title
+                    }).eq('id', state["event_id"]).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        success_text = f"""🎉 แก้ไขชื่อสำเร็จ!
+
+🆔 ID: {state["event_id"]}
+📝 **ชื่อใหม่:** {new_title}
+📋 รายละเอียด: {state["current_data"].get('event_description', '')}
+📅 วันที่: {format_thai_date(state["current_data"].get('event_date', ''))}
+
+✅ อัปเดตในฐานข้อมูลแล้ว"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    del user_states[user_id]
+                    return
+                
+                except Exception as e:
+                    app.logger.error(f"Error editing title only: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขชื่อ", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    del user_states[user_id]
+                    return
+            
+            elif state["step"] == "edit_description_only":
+                new_description = text.strip()
+                
+                try:
+                    response = supabase_client.table('events').update({
+                        'event_description': new_description
+                    }).eq('id', state["event_id"]).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        success_text = f"""🎉 แก้ไขรายละเอียดสำเร็จ!
+
+🆔 ID: {state["event_id"]}
+📝 ชื่อ: {state["current_data"].get('event_title', '')}
+📋 **รายละเอียดใหม่:** {new_description}
+📅 วันที่: {format_thai_date(state["current_data"].get('event_date', ''))}
+
+✅ อัปเดตในฐานข้อมูลแล้ว"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    del user_states[user_id]
+                    return
+                
+                except Exception as e:
+                    app.logger.error(f"Error editing description only: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขรายละเอียด", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    del user_states[user_id]
+                    return
+            
+            elif state["step"] == "edit_date_only":
+                selected_date = text.strip()
+                
+                # Handle "วันอื่น" case
+                if selected_date == "วันอื่น":
+                    guide_text = """📅 ระบุวันที่ใหม่
+
+พิมพ์วันที่ในรูปแบบ: **YYYY-MM-DD**
+
+ตัวอย่าง:
+• 2025-08-15
+• 2025-09-01
+• 2025-12-25
+
+💬 พิมพ์วันที่แล้วส่งมา"""
+                    
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=guide_text, quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                # Validate date format
+                try:
+                    event_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+                    event_date_str = str(event_date)
+                except ValueError:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_cancel_quick_reply())]
+                        )
+                    )
+                    return
+                
+                try:
+                    response = supabase_client.table('events').update({
+                        'event_date': event_date_str
+                    }).eq('id', state["event_id"]).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        success_text = f"""🎉 แก้ไขวันที่สำเร็จ!
+
+🆔 ID: {state["event_id"]}
+📝 ชื่อ: {state["current_data"].get('event_title', '')}
+📋 รายละเอียด: {state["current_data"].get('event_description', '')}
+📅 **วันที่ใหม่:** {format_thai_date(event_date_str)}
+
+✅ อัปเดตในฐานข้อมูลแล้ว"""
+                        
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text=success_text, quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    else:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ ไม่สามารถแก้ไขได้", quick_reply=create_admin_quick_reply())]
+                            )
+                        )
+                    
+                    del user_states[user_id]
+                    return
+                
+                except Exception as e:
+                    app.logger.error(f"Error editing date only: {e}")
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="❌ เกิดข้อผิดพลาดในการแก้ไขวันที่", quick_reply=create_admin_quick_reply())]
+                        )
+                    )
+                    del user_states[user_id]
+                    return
+
+            # Full edit flow handlers (original 3-step process)
             elif state["step"] == "edit_waiting_title":
                 new_title = text.strip() if text.strip() != "เหมือนเดิม" else state["current_data"]["event_title"]
                 state["event_data"]["title"] = new_title
