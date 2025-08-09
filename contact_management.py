@@ -9,12 +9,24 @@ import re
 import pandas as pd
 import io
 from datetime import datetime
+from dotenv import load_dotenv
 from supabase import create_client, Client
+
+# Load environment variables
+load_dotenv()
 
 # Initialize Supabase client
 supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
-supabase_client: Client = create_client(supabase_url, supabase_key)
+
+# Initialize Supabase client with error handling
+try:
+    if not supabase_url or not supabase_key:
+        raise ValueError("Missing required environment variables: SUPABASE_URL or SUPABASE_SERVICE_KEY")
+    supabase_client: Client = create_client(supabase_url, supabase_key)
+except Exception as e:
+    print(f"Error initializing Supabase client: {e}")
+    supabase_client = None
 
 def validate_supabase_response(response, operation="database operation"):
     """Validate Supabase response and provide detailed error info"""
@@ -122,6 +134,11 @@ def search_contacts_by_category(category="all", limit=20, offset=0):
 def get_contacts_stats():
     """Get statistics about contacts for large datasets"""
     try:
+        # Check if supabase client is available
+        if not supabase_client:
+            print("Supabase client not initialized")
+            return {"total": 0, "mobile": 0, "landline": 0, "recent": 0}
+            
         # Get total count
         total_result = supabase_client.table('contacts').select('*', count='exact').execute()
         total_count = total_result.count
