@@ -552,7 +552,7 @@ def send_automatic_notifications():
 @app.route("/")
 def health_check():
     """Health check endpoint for monitoring services"""
-    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.3-list-all-fix"}, 200
+    return {"status": "ok", "service": "LINE Bot Event Notification System", "version": "v3.4-undefined-fix"}, 200
 
 @app.route("/send-notifications", methods=['GET', 'POST'])
 def trigger_notifications():
@@ -2870,9 +2870,9 @@ https://notibot-1234.onrender.com/send-notifications"""
             )
         )
     
-    # Handle admin contact commands
-    elif handle_admin_commands(text, event, line_bot_api, admin_ids, create_admin_quick_reply):
-        pass  # Command was handled by handle_admin_commands
+    # Handle admin contact commands (disabled - function not implemented)
+    # elif handle_admin_commands(text, event, line_bot_api, admin_ids, create_admin_quick_reply):
+    #     pass  # Command was handled by handle_admin_commands
     
     # ==================== END CONTACT MANAGEMENT ====================
     
