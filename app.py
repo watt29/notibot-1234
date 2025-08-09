@@ -1368,7 +1368,8 @@ def handle_message(event):
 💬 **พิมพ์คำค้นในรูปแบบใดก็ได้:**
 
 📝 ค้นหาคำ: บัตร, ประชุม, แม่
-📅 ค้นหาวันที่: 2025-08-15, 2025-12-25
+📅 ค้นหาวันที่: วันนี้, พรุ่งนี้, เมื่อวาน
+📅 หรือ: 2025-08-15, 2025-12-25
 🔤 ค้นหาผสม: อะไรก็ได้
 
 ระบบจะค้นหาในทุกส่วน (ชื่อ, รายละเอียด, วันที่)"""
@@ -1468,20 +1469,30 @@ def handle_message(event):
                 
                 del user_states[user_id]  # Clear state
                 
-                # Validate date format
-                try:
-                    datetime.strptime(selected_date, '%Y-%m-%d').date()
-                except ValueError:
-                    line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD", quick_reply=create_main_quick_reply())]
+                # Handle Thai date keywords first
+                actual_date = None
+                if selected_date.lower() in ["วันนี้", "today"]:
+                    actual_date = str(date.today())
+                elif selected_date.lower() in ["พรุ่งนี้", "tomorrow"]:
+                    actual_date = str(date.today() + timedelta(days=1))
+                elif selected_date.lower() in ["เมื่อวาน", "yesterday"]:
+                    actual_date = str(date.today() - timedelta(days=1))
+                else:
+                    # Validate date format
+                    try:
+                        parsed_date = datetime.strptime(selected_date, '%Y-%m-%d').date()
+                        actual_date = str(parsed_date)
+                    except ValueError:
+                        line_bot_api.reply_message(
+                            ReplyMessageRequest(
+                                reply_token=event.reply_token,
+                                messages=[TextMessage(text="❌ รูปแบบวันที่ไม่ถูกต้อง\n\nใช้ได้:\n• วันนี้, พรุ่งนี้, เมื่อวาน\n• หรือ YYYY-MM-DD (เช่น 2025-08-15)", quick_reply=create_main_quick_reply())]
+                            )
                         )
-                    )
-                    return
+                        return
                 
                 try:
-                    response = supabase_client.table('events').select('*').eq('event_date', selected_date).execute()
+                    response = supabase_client.table('events').select('*').eq('event_date', actual_date).execute()
                     events = response.data
                     
                     if events:
@@ -1493,18 +1504,38 @@ def handle_message(event):
                         else:
                             flex_message = create_events_carousel_message(events, is_admin)
                         
+                        # Create friendly date display
+                        if selected_date.lower() in ["วันนี้", "today"]:
+                            date_display = f"วันนี้ ({format_thai_date(actual_date)})"
+                        elif selected_date.lower() in ["พรุ่งนี้", "tomorrow"]:
+                            date_display = f"พรุ่งนี้ ({format_thai_date(actual_date)})"
+                        elif selected_date.lower() in ["เมื่อวาน", "yesterday"]:
+                            date_display = f"เมื่อวาน ({format_thai_date(actual_date)})"
+                        else:
+                            date_display = format_thai_date(actual_date)
+                        
                         line_bot_api.reply_message(
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
-                                messages=[flex_message, TextMessage(text=f"📅 วันที่ {format_thai_date(selected_date)} พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
+                                messages=[flex_message, TextMessage(text=f"📅 {date_display} พบ {total_events} รายการ", quick_reply=create_main_quick_reply())]
                             )
                         )
                     else:
+                        # Create friendly date display for no results
+                        if selected_date.lower() in ["วันนี้", "today"]:
+                            date_display = f"วันนี้ ({format_thai_date(actual_date)})"
+                        elif selected_date.lower() in ["พรุ่งนี้", "tomorrow"]:
+                            date_display = f"พรุ่งนี้ ({format_thai_date(actual_date)})"
+                        elif selected_date.lower() in ["เมื่อวาน", "yesterday"]:
+                            date_display = f"เมื่อวาน ({format_thai_date(actual_date)})"
+                        else:
+                            date_display = format_thai_date(actual_date)
+                            
                         line_bot_api.reply_message(
                             ReplyMessageRequest(
                                 reply_token=event.reply_token,
                                 messages=[TextMessage(
-                                    text=f"📅 ไม่พบกิจกรรมในวันที่ {format_thai_date(selected_date)}",
+                                    text=f"📅 ไม่พบกิจกรรมใน{date_display}",
                                     quick_reply=create_main_quick_reply()
                                 )]
                             )
@@ -1527,12 +1558,21 @@ def handle_message(event):
                 del user_states[user_id]  # Clear state
                 
                 try:
-                    # Check if search term is a date
-                    if re.match(r'\d{4}-\d{2}-\d{2}', search_term):
-                        response = supabase_client.table('events').select('*').eq('event_date', search_term).execute()
+                    # Handle Thai date keywords first
+                    actual_search_term = search_term
+                    if search_term.lower() in ["วันนี้", "today"]:
+                        actual_search_term = str(date.today())
+                    elif search_term.lower() in ["พรุ่งนี้", "tomorrow"]:
+                        actual_search_term = str(date.today() + timedelta(days=1))
+                    elif search_term.lower() in ["เมื่อวาน", "yesterday"]:
+                        actual_search_term = str(date.today() - timedelta(days=1))
+                    
+                    # Check if search term is a date (original or converted)
+                    if re.match(r'\d{4}-\d{2}-\d{2}', actual_search_term):
+                        response = supabase_client.table('events').select('*').eq('event_date', actual_search_term).execute()
                     else:
                         # Search in title and description
-                        response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{search_term}%,event_description.ilike.%{search_term}%").order('event_date', desc=False).execute()
+                        response = supabase_client.table('events').select('*').or_(f"event_title.ilike.%{actual_search_term}%,event_description.ilike.%{actual_search_term}%").order('event_date', desc=False).execute()
                     
                     events = response.data
                     
