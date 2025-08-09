@@ -564,6 +564,19 @@ def trigger_notifications():
     result = send_automatic_notifications()
     return result, 200
 
+@app.route("/force-restart", methods=['POST'])
+def force_restart():
+    """Emergency endpoint to force application restart - helps with deployment issues"""
+    import os
+    import sys
+    
+    app.logger.info("Force restart requested - triggering application restart")
+    
+    # In production, this will cause the container to restart
+    os.execv(sys.executable, ['python'] + sys.argv)
+    
+    return {"status": "restarting", "message": "Application restart initiated"}, 200
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
