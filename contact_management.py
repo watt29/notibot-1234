@@ -16,6 +16,39 @@ supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
 supabase_client: Client = create_client(supabase_url, supabase_key)
 
+def validate_supabase_response(response, operation="database operation"):
+    """Validate Supabase response and provide detailed error info"""
+    if not response:
+        raise Exception(f"No response from {operation}")
+    
+    if hasattr(response, 'error') and response.error:
+        raise Exception(f"Supabase error in {operation}: {response.error}")
+    
+    if not hasattr(response, 'data'):
+        raise Exception(f"Invalid response structure from {operation}")
+    
+    return True
+
+def safe_supabase_query(query_func, operation_name="query"):
+    """Execute Supabase query with proper error handling"""
+    try:
+        response = query_func()
+        validate_supabase_response(response, operation_name)
+        return {"success": True, "data": response.data}
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Error in {operation_name}: {e}")
+        
+        # Categorize errors for better user feedback
+        if "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+            return {"success": False, "error": "ปัญหาการเชื่อมต่อฐานข้อมูล", "type": "connection"}
+        elif "permission" in error_msg.lower() or "unauthorized" in error_msg.lower():
+            return {"success": False, "error": "ไม่มีสิทธิ์เข้าถึงข้อมูล", "type": "permission"}
+        elif "not found" in error_msg.lower():
+            return {"success": False, "error": "ไม่พบข้อมูลที่ต้องการ", "type": "not_found"}
+        else:
+            return {"success": False, "error": f"เกิดข้อผิดพลาด: {error_msg[:100]}", "type": "general"}
+
 def validate_phone_number(phone_number):
     """Validate Thai phone number format"""
     # Remove all spaces, dashes, and parentheses
@@ -168,8 +201,18 @@ def add_contact(name, phone_number, user_id):
         else:
             return {"success": False, "error": "ไม่สามารถเพิ่มข้อมูลได้"}
     except Exception as e:
+        error_msg = str(e)
         print(f"Error adding contact: {e}")
-        return {"success": False, "error": "เกิดข้อผิดพลาดในระบบ"}
+        
+        # Provide more specific error messages
+        if "duplicate" in error_msg.lower() or "unique" in error_msg.lower():
+            return {"success": False, "error": "ข้อมูลนี้มีอยู่แล้วในระบบ กรุณาตรวจสอบชื่อและเบอร์โทร"}
+        elif "connection" in error_msg.lower() or "network" in error_msg.lower():
+            return {"success": False, "error": "ปัญหาการเชื่อมต่อฐานข้อมูล กรุณาลองใหม่ในอีกสักครู่"}
+        elif "invalid" in error_msg.lower():
+            return {"success": False, "error": "รูปแบบข้อมูลไม่ถูกต้อง กรุณาตรวจสอบชื่อและเบอร์โทร"}
+        else:
+            return {"success": False, "error": f"เกิดข้อผิดพลาดในระบบ: {error_msg[:50]}"}
 
 def edit_contact(contact_id, name, phone_number, user_id):
     """Edit existing contact (admin only)"""
@@ -222,22 +265,70 @@ def export_contacts_to_excel():
         if not contacts:
             return {"success": False, "error": "ไม่มีข้อมูลที่จะส่งออก"}
         
-        # Create DataFrame
-        df = pd.DataFrame(contacts)
-        df = df[['id', 'name', 'phone_number', 'created_at', 'created_by']]
-        df.columns = ['ID', 'ชื่อ', 'เบอร์โทร', 'วันที่สร้าง', 'ผู้สร้าง']
+        # Validate contacts data structure
+        if not isinstance(contacts, list):
+            return {"success": False, "error": "ข้อมูลเบอร์โทรไม่ถูกต้อง"}
         
-        # Create Excel file in memory
+        # Create DataFrame with error handling
+        try:
+            df = pd.DataFrame(contacts)
+            if df.empty:
+                return {"success": False, "error": "ไม่มีข้อมูลที่สามารถส่งออกได้"}
+            
+            # Validate required columns exist
+            required_cols = ['id', 'name', 'phone_number', 'created_at', 'created_by']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                print(f"Missing columns: {missing_cols}")
+                # Use available columns only
+                available_cols = [col for col in required_cols if col in df.columns]
+                df = df[available_cols]
+            else:
+                df = df[required_cols]
+            
+            df.columns = ['ID', 'ชื่อ', 'เบอร์โทร', 'วันที่สร้าง', 'ผู้สร้าง'][:len(df.columns)]
+            
+        except Exception as df_error:
+            print(f"Error creating DataFrame: {df_error}")
+            return {"success": False, "error": "ไม่สามารถประมวลผลข้อมูลได้"}
+        
+        # Create Excel file in memory with proper error handling
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Contacts', index=False)
+        try:
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Contacts', index=False)
+        except Exception as excel_error:
+            print(f"Error creating Excel file: {excel_error}")
+            return {"success": False, "error": "ไม่สามารถสร้างไฟล์ Excel ได้"}
         
-        output.seek(0)
-        return {"success": True, "file": output.getvalue(), "filename": f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"}
+        try:
+            output.seek(0)
+            file_data = output.getvalue()
+            
+            if not file_data:
+                return {"success": False, "error": "ไฟล์ Excel ว่างเปล่า"}
+                
+        except Exception as read_error:
+            print(f"Error reading Excel data: {read_error}")
+            return {"success": False, "error": "ไม่สามารถอ่านไฟล์ Excel ได้"}
+        
+        return {
+            "success": True, 
+            "file": file_data, 
+            "filename": f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            "count": len(contacts)
+        }
         
     except Exception as e:
+        error_msg = str(e)
         print(f"Error exporting contacts: {e}")
-        return {"success": False, "error": "เกิดข้อผิดพลาดในการส่งออกข้อมูล"}
+        
+        if "memory" in error_msg.lower():
+            return {"success": False, "error": "หน่วยความจำไม่เพียงพอ ข้อมูลเยอะเกินไป"}
+        elif "permission" in error_msg.lower():
+            return {"success": False, "error": "ไม่มีสิทธิ์เข้าถึงไฟล์"}
+        else:
+            return {"success": False, "error": f"เกิดข้อผิดพลาดในการส่งออกข้อมูล: {error_msg[:50]}"}
 
 def create_contact_flex_message(contact_data, is_single=False):
     """Create Flex Message for contact display"""

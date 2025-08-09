@@ -459,7 +459,7 @@ def create_date_quick_reply():
     """Create quick date selection buttons"""
     today = date.today()
     dates = []
-    for i in range(11):  # Next 11 days (maximum for Quick Reply limit)
+    for i in range(10):  # Next 10 days (safe limit with buffer for LINE Bot API)
         future_date = today + timedelta(days=i)
         label = "วันนี้" if i == 0 else f"{future_date.day}/{future_date.month}"
         dates.append(QuickReplyItem(action=MessageAction(label=label, text=str(future_date))))
@@ -571,14 +571,22 @@ def send_automatic_notifications():
         today = date.today()
         tomorrow = today + timedelta(days=1)
         
-        # Get events for today and tomorrow
+        # Get events for today and tomorrow with proper error validation
         events_today = supabase_client.table('events').select('*').eq('event_date', str(today)).execute()
+        if not hasattr(events_today, 'data') or events_today.data is None:
+            app.logger.error("Failed to fetch today's events - no data attribute or data is None")
+            return {"status": "error", "message": "Database query failed for today's events"}
+            
         events_tomorrow = supabase_client.table('events').select('*').eq('event_date', str(tomorrow)).execute()
+        if not hasattr(events_tomorrow, 'data') or events_tomorrow.data is None:
+            app.logger.error("Failed to fetch tomorrow's events - no data attribute or data is None")
+            return {"status": "error", "message": "Database query failed for tomorrow's events"}
         
-        # Get all subscribers
+        # Get all subscribers with validation
         subscribers_response = supabase_client.table('subscribers').select('user_id').execute()
-        if not subscribers_response.data:
-            return {"status": "no_subscribers", "message": "No subscribers found"}
+        if not hasattr(subscribers_response, 'data') or not subscribers_response.data:
+            app.logger.warning("No subscribers found or invalid response structure")
+            return {"status": "no_subscribers", "message": "No subscribers found or database error"}
         
         notifications_sent = 0
         
@@ -903,15 +911,26 @@ def handle_message(event):
                 raise Exception("No data returned from Supabase insert.")
 
         except Exception as e:
+            # Enhanced logging with context
             app.logger.error(f"Error adding event to Supabase: {e}")
             app.logger.error(f"Event data - Title: '{event_title}', Desc: '{event_description}', Date: '{event_date}'")
+            app.logger.error(f"User ID: {event.source.user_id}")
+            app.logger.error(f"Exception type: {type(e).__name__}")
             
-            # Return more specific error message
-            error_msg = f"เกิดข้อผิดพลาด: {str(e)[:100]}\nTitle: {event_title}\nDescription: {event_description}\nDate: {event_date}"
+            # Provide specific error message based on error type
+            error_msg = str(e)
+            if "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                user_error_msg = "⚠️ ปัญหาการเชื่อมต่อฐานข้อมูล กรุณาลองใหม่ในอีกสักครู่"
+            elif "duplicate" in error_msg.lower():
+                user_error_msg = "⚠️ กิจกรรมนี้มีอยู่แล้วในระบบ กรุณาตรวจสอบข้อมูล"
+            elif "invalid" in error_msg.lower() or "format" in error_msg.lower():
+                user_error_msg = f"⚠️ รูปแบบข้อมูลไม่ถูกต้อง:\n- วันที่: {event_date}\n- ชื่อ: {event_title}"
+            else:
+                user_error_msg = f"⚠️ เกิดข้อผิดพลาด กรุณาตรวจสอบข้อมูลและลองใหม่\n\nข้อมูล:\n- ชื่อ: {event_title}\n- วันที่: {event_date}"
             safe_line_api_call(line_bot_api.reply_message,
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text=error_msg, quick_reply=create_admin_quick_reply())]
+                    messages=[TextMessage(text=user_error_msg, quick_reply=create_admin_quick_reply())]
                 )
             )
             return
@@ -3231,6 +3250,7 @@ https://notibot-1234.onrender.com/send-notifications"""
                 messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ\n\n📞 **คำสั่งเบอร์โทรใหม่:**\n• เพิ่มเบอร์ ชื่อ เบอร์ - เพิ่มเบอร์\n• หาเบอร์ คำค้นหา - หาเบอร์\n• เบอร์ทั้งหมด - ดูทั้งหมด\n• วิธีใช้เบอร์ - วิธีใช้งาน\n\n💡 **คำสั่งเดิม:**\n• add_phone, search_phone ยังใช้ได้", quick_reply=create_main_quick_reply())]
             )
         )
+        return
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
