@@ -60,21 +60,18 @@
 # Test locally
 python app.py
 
-# Test contact system only
-python app_clean.py
+# Test contact system only  
+python simple_contact_bot.py
 
-# Deploy check
-git status
-git add .
-git commit -m "message"  
-git push
+# Auto-deploy (Claude จะทำให้อัตโนมัติ)
+git status && git add . && git commit -m "Auto-update" && git push
 
 # Check bot
 curl https://notibot-1234.onrender.com/
 
 # Test contact management
-add_phone สมชาย 081-234-5678
-search_phone สมชาย
+เพิ่มเบอร์ สมชาย 081-234-5678
+หาเบอร์ สมชาย
 /contacts (Admin only)
 ```
 
@@ -83,5 +80,10 @@ search_phone สมชาย
 - ทดสอบผ่าน Admin menu "🤖 ทดสอบแจ้งเตือนอัตโนมัติ"
 - ตรวจ GitHub Actions workflow runs
 
+### ⚙️ **Auto-Deploy Settings**
+- 🔄 **GitHub Auto-Push:** เปิดใช้งาน
+- 🤖 **Claude จะ commit & push อัตโนมัติ** ทุกครั้งที่แก้ไข
+- 🚀 **Render Auto-Deploy:** เชื่อมต่อแล้ว
+
 ---
-📝 อัพเดทล่าสุด: 2025-08-09 08:30 - เพิ่มปุ่มวันที่และแก้บัคคีย์เวิร์ดไทย
+📝 อัพเดทล่าสุด: 2025-08-09 - เพิ่มระบบอำนวยความสะดวกภาษาไทย + Auto GitHub Update
