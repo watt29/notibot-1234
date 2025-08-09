@@ -20,8 +20,11 @@ from contact_management import (
     create_contact_flex_message
 )
 from contact_commands import (
-    handle_add_contact_user, handle_search_contact_user, handle_admin_commands
+    handle_add_contact_user, handle_search_contact_user, handle_admin_commands,
+    create_contact_quick_reply, create_contact_admin_quick_reply
 )
+from easy_commands import convert_thai_to_english_command
+from smart_helper import detect_incomplete_command, analyze_user_intent, format_error_message
 
 # Load environment variables from .env file
 load_dotenv()
@@ -2586,15 +2589,95 @@ https://notibot-1234.onrender.com/send-notifications"""
     
     # ==================== CONTACT MANAGEMENT COMMANDS ====================
     
-    # Handle contact commands for regular users
-    elif text.startswith("add_phone ") or text.startswith("search_phone "):  # English commands to avoid encoding issues
-        # Convert to Thai commands internally
-        if text.startswith("add_phone "):
-            text = text.replace("add_phone ", "เพิ่มเบอร์ ")
-            handle_add_contact_user(text, event, line_bot_api, create_main_quick_reply)
-        elif text.startswith("search_phone "):
-            text = text.replace("search_phone ", "หาเบอร์ ")
-            handle_search_contact_user(text, event, line_bot_api, create_main_quick_reply)
+    # Check for Thai natural language first
+    converted_command = convert_thai_to_english_command(text)
+    
+    # Check for incomplete commands and provide help
+    incomplete = detect_incomplete_command(converted_command)
+    if incomplete:
+        from linebot.v3.messaging import QuickReply, QuickReplyItem, MessageAction
+        quick_reply = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label=f"💡 {suggestion[:20]}", text=suggestion))
+            for suggestion in incomplete["suggestions"][:10]
+        ])
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=incomplete["message"], quick_reply=quick_reply)]
+            )
+        )
+        return
+    
+    # Handle English commands (old format)
+    elif text.startswith("add_phone "):
+        text = text.replace("add_phone ", "เพิ่มเบอร์ ")
+        handle_add_contact_user(text, event, line_bot_api, create_main_quick_reply)
+    
+    elif text.startswith("search_phone "):
+        text = text.replace("search_phone ", "หาเบอร์ ")
+        handle_search_contact_user(text, event, line_bot_api, create_main_quick_reply)
+    
+    # Handle Thai commands (new format)
+    elif converted_command.startswith("add_phone "):
+        thai_text = converted_command.replace("add_phone ", "เพิ่มเบอร์ ")
+        handle_add_contact_user(thai_text, event, line_bot_api, create_main_quick_reply)
+    
+    elif converted_command.startswith("search_phone "):
+        thai_text = converted_command.replace("search_phone ", "หาเบอร์ ")
+        handle_search_contact_user(thai_text, event, line_bot_api, create_main_quick_reply)
+    
+    # Handle show all contacts in Thai
+    elif text.lower() in ["เบอร์ทั้งหมด", "ทั้งหมด", "ดูทั้งหมด", "รายการทั้งหมด"]:
+        contacts = get_all_contacts()
+        if not contacts:
+            msg = "📭 ยังไม่มีเบอร์โทรในสมุด\n\n💡 เริ่มเพิ่มเบอร์แรกกันเลย!"
+            quick_reply = create_contact_quick_reply()
+        else:
+            msg = f"📋 สมุดเบอร์โทร ({len(contacts)} คน)\n\n"
+            for i, contact in enumerate(contacts[:20], 1):
+                msg += f"{i}. {contact['name']} - {contact['phone_number']}\n"
+            if len(contacts) > 20:
+                msg += f"\n... และอีก {len(contacts) - 20} คน"
+            msg += "\n\n💡 ลองค้นหาคนที่ต้องการดู"
+            quick_reply = create_contact_quick_reply()
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=msg, quick_reply=quick_reply)]
+            )
+        )
+    
+    # Handle help command in Thai
+    elif text.lower() in ["วิธีใช้เบอร์", "ช่วยเหลือเบอร์", "help เบอร์"]:
+        help_text = """📞 วิธีใช้งานสมุดเบอร์โทร
+
+🎯 **วิธีง่ายๆ ที่เข้าใจได้:**
+
+📝 **เพิ่มเบอร์:**
+• เพิ่มเบอร์ สมชาย 081-234-5678
+• บันทึกเบอร์ นางสาวดาว 089-999-8888
+• add_phone คุณแม่ 02-123-4567
+
+🔍 **หาเบอร์:**
+• หาเบอร์ สมชาย
+• ค้นหา 081
+• search_phone ดาว
+
+💡 **เทคนิค:**
+• พิมพ์แค่บางส่วนก็ได้
+• ค้นหาได้หลายคำพร้อมกัน
+• ใช้ได้ทั้งภาษาไทยและอังกฤษ
+
+🎮 **กดปุ่มด่วน:**
+ใช้ปุ่มด้านล่างได้เลย!"""
+        
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=help_text, quick_reply=create_contact_quick_reply())]
+            )
+        )
     
     # Handle admin contact commands
     elif handle_admin_commands(text, event, line_bot_api, admin_ids, create_admin_quick_reply):
@@ -2606,7 +2689,7 @@ https://notibot-1234.onrender.com/send-notifications"""
         line_bot_api.reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token,
-                messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ\n\n💡 คำสั่งใหม่:\n• add_phone [ชื่อ] [เบอร์] - เพิ่มเบอร์\n• search_phone [คำค้นหา] - หาเบอร์\n• /contacts - ดูคำสั่งทั้งหมด (Admin)", quick_reply=create_main_quick_reply())]
+                messages=[TextMessage(text=f"คุณพูดว่า: {text}\n\nลองใช้เมนูด้านล่างเพื่อดูกิจกรรมครับ\n\n📞 **คำสั่งเบอร์โทรใหม่:**\n• เพิ่มเบอร์ ชื่อ เบอร์ - เพิ่มเบอร์\n• หาเบอร์ คำค้นหา - หาเบอร์\n• เบอร์ทั้งหมด - ดูทั้งหมด\n• วิธีใช้เบอร์ - วิธีใช้งาน\n\n💡 **คำสั่งเดิม:**\n• add_phone, search_phone ยังใช้ได้", quick_reply=create_main_quick_reply())]
             )
         )
 
