@@ -259,7 +259,7 @@ def create_date_quick_reply():
     """Create quick date selection buttons"""
     today = date.today()
     dates = []
-    for i in range(7):  # Next 7 days
+    for i in range(11):  # Next 11 days (maximum for Quick Reply limit)
         future_date = today + timedelta(days=i)
         label = "วันนี้" if i == 0 else f"{future_date.day}/{future_date.month}"
         dates.append(QuickReplyItem(action=MessageAction(label=label, text=str(future_date))))
