@@ -1,5 +1,6 @@
-FORCE_DEPLOYMENT_2025_08_09=true
-# This file forces Render to rebuild and deploy the retry mechanism fix
-DEPLOYMENT_TIMESTAMP=$(date)
-CRITICAL_FIX=urllib3_protocol_error_retry_mechanism
-STATUS=URGENT_DEPLOY_REQUIRED
+FORCE_DEPLOYMENT_2025_08_09_APIEXCEPTION=true
+# Force deployment for ApiException ImportError fix
+DEPLOYMENT_TIMESTAMP=2025-08-09_07:25:00
+CRITICAL_FIX=apiexception_import_error_fix
+STATUS=EMERGENCY_DEPLOYMENT_REQUIRED
+VERSION=v2.2-no-apiexception
