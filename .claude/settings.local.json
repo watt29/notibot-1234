@@ -10,7 +10,8 @@
       "WebFetch(domain:notibot-1234-1.onrender.com)",
       "WebFetch(domain:notibot-1234.onrender.com)",
       "WebFetch(domain:github.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

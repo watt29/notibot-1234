@@ -1,0 +1,269 @@
+# -*- coding: utf-8 -*-
+"""
+Contact Management System for LINE Bot
+ระบบจัดการเบอร์โทรสำหรับ LINE Bot
+"""
+
+import os
+import re
+import pandas as pd
+import io
+from datetime import datetime
+from supabase import create_client, Client
+
+# Initialize Supabase client
+supabase_url = os.getenv('SUPABASE_URL')
+supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
+supabase_client: Client = create_client(supabase_url, supabase_key)
+
+def validate_phone_number(phone_number):
+    """Validate Thai phone number format"""
+    # Remove all spaces, dashes, and parentheses
+    phone_clean = re.sub(r'[\s\-\(\)]', '', phone_number)
+    
+    # Check if it's a valid Thai phone number format
+    # Thai mobile: 08X-XXXXXXX, 09X-XXXXXXX, 06X-XXXXXXX
+    # Thai landline: 0XX-XXXXXX (not mobile 08X, 09X, 06X)
+    patterns = [
+        r'^0[689]\d{8}$',  # Mobile numbers
+        r'^0[2-7][0-9]\d{6,7}$',  # Landline numbers
+    ]
+    
+    for pattern in patterns:
+        if re.match(pattern, phone_clean):
+            # Format to standard Thai format: 0XX-XXX-XXXX
+            if len(phone_clean) == 10:
+                return f"{phone_clean[:3]}-{phone_clean[3:6]}-{phone_clean[6:]}"
+            elif len(phone_clean) == 9:
+                return f"{phone_clean[:2]}-{phone_clean[2:5]}-{phone_clean[5:]}"
+    
+    return None
+
+def search_contacts_multi_keyword(keywords, user_id=None):
+    """Search contacts with multiple keywords (partial match)"""
+    try:
+        # Split keywords by space
+        keyword_list = keywords.strip().split()
+        
+        if not keyword_list:
+            return []
+            
+        # Build query for multiple keywords
+        # Each keyword should match either name or phone_number
+        query = supabase_client.table('contacts').select('*')
+        
+        for keyword in keyword_list:
+            query = query.or_(f"name.ilike.%{keyword}%,phone_number.ilike.%{keyword}%")
+        
+        # Execute query
+        result = query.execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"Error searching contacts: {e}")
+        return []
+
+def add_contact(name, phone_number, user_id):
+    """Add new contact to database"""
+    try:
+        # Validate phone number
+        formatted_phone = validate_phone_number(phone_number)
+        if not formatted_phone:
+            return {"success": False, "error": "เบอร์โทรไม่ถูกต้อง กรุณาใส่เบอร์โทรที่ถูกต้อง (10 หลัก)"}
+        
+        # Check if contact already exists (same name and phone)
+        existing = supabase_client.table('contacts').select('*').eq('name', name).eq('phone_number', formatted_phone).execute()
+        if existing.data:
+            return {"success": False, "error": "ข้อมูลนี้มีอยู่แล้วในระบบ"}
+        
+        # Insert new contact
+        result = supabase_client.table('contacts').insert({
+            'name': name,
+            'phone_number': formatted_phone,
+            'created_by': user_id,
+            'updated_at': datetime.now().isoformat()
+        }).execute()
+        
+        if result.data:
+            return {"success": True, "data": result.data[0]}
+        else:
+            return {"success": False, "error": "ไม่สามารถเพิ่มข้อมูลได้"}
+    except Exception as e:
+        print(f"Error adding contact: {e}")
+        return {"success": False, "error": "เกิดข้อผิดพลาดในระบบ"}
+
+def edit_contact(contact_id, name, phone_number, user_id):
+    """Edit existing contact (admin only)"""
+    try:
+        # Validate phone number
+        formatted_phone = validate_phone_number(phone_number)
+        if not formatted_phone:
+            return {"success": False, "error": "เบอร์โทรไม่ถูกต้อง กรุณาใส่เบอร์โทรที่ถูกต้อง (10 หลัก)"}
+        
+        # Update contact
+        result = supabase_client.table('contacts').update({
+            'name': name,
+            'phone_number': formatted_phone,
+            'updated_at': datetime.now().isoformat()
+        }).eq('id', contact_id).execute()
+        
+        if result.data:
+            return {"success": True, "data": result.data[0]}
+        else:
+            return {"success": False, "error": "ไม่พบข้อมูลที่ต้องการแก้ไข"}
+    except Exception as e:
+        print(f"Error editing contact: {e}")
+        return {"success": False, "error": "เกิดข้อผิดพลาดในระบบ"}
+
+def delete_contact(contact_id, user_id):
+    """Delete contact (admin only)"""
+    try:
+        result = supabase_client.table('contacts').delete().eq('id', contact_id).execute()
+        if result.data:
+            return {"success": True, "data": result.data[0]}
+        else:
+            return {"success": False, "error": "ไม่พบข้อมูลที่ต้องการลบ"}
+    except Exception as e:
+        print(f"Error deleting contact: {e}")
+        return {"success": False, "error": "เกิดข้อผิดพลาดในระบบ"}
+
+def get_all_contacts():
+    """Get all contacts (admin only)"""
+    try:
+        result = supabase_client.table('contacts').select('*').order('created_at.desc').execute()
+        return result.data if result.data else []
+    except Exception as e:
+        print(f"Error getting contacts: {e}")
+        return []
+
+def export_contacts_to_excel():
+    """Export all contacts to Excel file (admin only)"""
+    try:
+        contacts = get_all_contacts()
+        if not contacts:
+            return {"success": False, "error": "ไม่มีข้อมูลที่จะส่งออก"}
+        
+        # Create DataFrame
+        df = pd.DataFrame(contacts)
+        df = df[['id', 'name', 'phone_number', 'created_at', 'created_by']]
+        df.columns = ['ID', 'ชื่อ', 'เบอร์โทร', 'วันที่สร้าง', 'ผู้สร้าง']
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Contacts', index=False)
+        
+        output.seek(0)
+        return {"success": True, "file": output.getvalue(), "filename": f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"}
+        
+    except Exception as e:
+        print(f"Error exporting contacts: {e}")
+        return {"success": False, "error": "เกิดข้อผิดพลาดในการส่งออกข้อมูล"}
+
+def create_contact_flex_message(contact_data, is_single=False):
+    """Create Flex Message for contact display"""
+    contact_id = contact_data.get('id', '')
+    name = contact_data.get('name', 'ไม่ระบุชื่อ')
+    phone = contact_data.get('phone_number', 'ไม่ระบุเบอร์')
+    created_at = contact_data.get('created_at', '')
+    
+    # Format date
+    try:
+        if created_at:
+            date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            formatted_date = date_obj.strftime('%d/%m/%Y %H:%M')
+        else:
+            formatted_date = 'ไม่ระบุ'
+    except:
+        formatted_date = 'ไม่ระบุ'
+    
+    flex_content = {
+        "type": "bubble",
+        "size": "micro" if not is_single else "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": name,
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#1DB446"
+                },
+                {
+                    "type": "separator",
+                    "margin": "sm"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "sm",
+                    "margin": "sm",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "📞",
+                            "size": "sm",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": phone,
+                            "size": "sm",
+                            "color": "#333333",
+                            "flex": 1
+                        }
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "sm",
+                    "margin": "xs",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "🆔",
+                            "size": "xs",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": f"ID: {contact_id}",
+                            "size": "xs",
+                            "color": "#999999",
+                            "flex": 1
+                        }
+                    ]
+                } if is_single else None,
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "sm",
+                    "margin": "xs",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "⏰",
+                            "size": "xs",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": formatted_date,
+                            "size": "xs",
+                            "color": "#999999",
+                            "flex": 1
+                        }
+                    ]
+                } if is_single else None
+            ]
+        }
+    }
+    
+    # Remove None items
+    flex_content["body"]["contents"] = [item for item in flex_content["body"]["contents"] if item is not None]
+    
+    return flex_content
