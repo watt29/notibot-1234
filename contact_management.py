@@ -129,10 +129,15 @@ def delete_contact(contact_id, user_id):
 def get_all_contacts():
     """Get all contacts (admin only)"""
     try:
+        print(f"[DEBUG] Supabase URL: {supabase_url[:20]}..." if supabase_url else "No URL")
+        print(f"[DEBUG] Supabase Key: {supabase_key[:20]}..." if supabase_key else "No Key")
         result = supabase_client.table('contacts').select('*').order('created_at.desc').execute()
+        print(f"[DEBUG] Query result: {len(result.data) if result.data else 0} contacts")
         return result.data if result.data else []
     except Exception as e:
         print(f"Error getting contacts: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def export_contacts_to_excel():
