@@ -653,6 +653,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการดึงข้อมูลกิจกรรมค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_main_quick_reply())]
                 )
             )
+        return
     elif text == "/subscribe":
         user_id = event.source.user_id
         try:
@@ -682,6 +683,7 @@ def handle_message(event):
                     messages=[TextMessage(text="เกิดข้อผิดพลาดในการสมัครรับการแจ้งเตือนค่ะ กรุณาลองใหม่อีกครั้ง", quick_reply=create_main_quick_reply())]
                 )
             )
+        return
     elif text.startswith("/add "):
         user_id = event.source.user_id
         if user_id not in admin_ids:
@@ -851,6 +853,7 @@ def handle_message(event):
                     )]
                 )
             )
+        return
     elif text == "/next":
         try:
             today = date.today()
@@ -891,6 +894,7 @@ def handle_message(event):
                     )]
                 )
             )
+        return
     elif text == "/month":
         try:
             today = date.today()
@@ -952,6 +956,7 @@ def handle_message(event):
                     )]
                 )
             )
+        return
     elif text == "/admin" and event.source.user_id in admin_ids:
         admin_help_text = """🔧 เมนู Admin - ระบบครบครัน!
 
